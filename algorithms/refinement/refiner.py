@@ -391,11 +391,12 @@ refinement
       .expert_level = 1
 
     trim_scan_edges = 0.1
-      .help = "Reflections within this value in degrees of the start or end of"
-              "the scan will be removed before refinement, unless doing so"
-              "would result in too few remaining reflections. Reflections that"
-              "are truncated at the scan edges have poorly-determined centroids"
-              "and can bias the refined model if they are included."
+      .help = "Reflections within this value in degrees from the centre of the"
+              "first or last image of the scan will be removed before"
+              "refinement, unless doing so would result in too few remaining"
+              "reflections. Reflections that are truncated at the scan edges"
+              "have poorly-determined centroids and can bias the refined model"
+              "if they are included."
       .type = float(value_min=0,value_max=1)
       .expert_level = 1
 
