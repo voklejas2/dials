@@ -166,8 +166,8 @@ def test_constrained_refinement(dials_regression, tmpdir):
 
   # set up refinement, constraining the distance parameter
   cmd = ("dials.refine foo_experiments.json foo_reflections.pickle "
-         "history=history.pickle refinement.parameterisation.detector."
-         "constraints.parameter=Dist")
+         "history=history.pickle trim_scan_edges=0.0 "
+         "refinement.parameterisation.detector.constraints.parameter=Dist")
   result = easy_run.fully_buffered(command=cmd).raise_if_errors()
   # load refinement history
   import six.moves.cPickle as pickle

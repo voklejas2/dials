@@ -30,8 +30,9 @@ def test1(dials_regression, tmpdir):
     assert os.path.exists(pth)
 
   # set some old defaults
-  cmd = "dials.refine close_to_spindle_cutoff=0.05 reflections_per_degree=100 " + \
-        "outlier.separate_blocks=False " + experiments_path + " " + pickle_path
+  cmd = ("dials.refine close_to_spindle_cutoff=0.05 reflections_per_degree=100 "
+         "outlier.separate_blocks=False trim_scan_edges=0.0 " +
+         experiments_path + " " + pickle_path)
 
   result = easy_run.fully_buffered(command=cmd).raise_if_errors()
   # load results
@@ -69,10 +70,10 @@ def test2(dials_regression, tmpdir):
   # scan-static refinement first to get refined_experiments.json as start point
   cmd1 = ("dials.refine " + experiments_path + " " + pickle_path +
     " reflections_per_degree=50 "
-    " outlier.algorithm=null close_to_spindle_cutoff=0.05")
+    " outlier.algorithm=null close_to_spindle_cutoff=0.05 trim_scan_edges=0.0 ")
   cmd2 = ("dials.refine refined_experiments.json " + pickle_path +
     " scan_varying=true output.history=history.pickle"
-    " reflections_per_degree=50"
+    " reflections_per_degree=50 trim_scan_edges=0.0"
     " outlier.algorithm=null close_to_spindle_cutoff=0.05"
     " crystal.orientation.smoother.interval_width_degrees=36.0"
     " crystal.unit_cell.smoother.interval_width_degrees=36.0"
@@ -119,6 +120,7 @@ def test3(dials_regression, tmpdir):
 
   cmd1 = ("dials.refine " + experiments_path + " " + pickle_path +
           " scan_varying=true max_iterations=5 output.history=history.pickle "
+          " trim_scan_edges=0.0 "
           "crystal.orientation.smoother.interval_width_degrees=auto "
           "crystal.unit_cell.smoother.interval_width_degrees=auto")
   result1 = easy_run.fully_buffered(command=cmd1).raise_if_errors()
