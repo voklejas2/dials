@@ -356,10 +356,10 @@ class ReflectionManager(object):
       # last images in the scan
       edge1, edge2 = [e + 0.5 for e in exp.scan.get_image_range()]
       edge1 = exp.scan.get_angle_from_image_index(edge1, deg=False)
-      edge1 += self._trim_scan_edges
+      edge1 += (self._trim_scan_edges)
       edge2 = exp.scan.get_angle_from_image_index(edge2, deg=False)
-      edge2 -= self._trim_scan_edges
-      passed3 = ((edge1 < phi) & (phi < edge2))
+      edge2 -= (self._trim_scan_edges)
+      passed3 = ((edge1 <= phi) & (phi <= edge2))
       if passed3.count(False) > 0.5 * len(phi):
         logger.warning("Too few reflections to trim centroids from the scan"
           "edges. Resetting trim_scan_edges=0.0.")
