@@ -357,21 +357,22 @@ class ReflectionManager(object):
 
       # third test: reject reflections close to the centres of the first and
       # last images in the scan
-      edge1, edge2 = [e + 0.5 for e in exp.scan.get_image_range()]
-      edge1 = exp.scan.get_angle_from_image_index(edge1, deg=False)
-      edge1 += (self._trim_scan_edges)
-      edge2 = exp.scan.get_angle_from_image_index(edge2, deg=False)
-      edge2 -= (self._trim_scan_edges)
-      passed3 = ((edge1 <= phi) & (phi <= edge2))
+      if self._trim_scan_edges > 0.0:
+        edge1, edge2 = [e + 0.5 for e in exp.scan.get_image_range()]
+        edge1 = exp.scan.get_angle_from_image_index(edge1, deg=False)
+        edge1 += (self._trim_scan_edges)
+        edge2 = exp.scan.get_angle_from_image_index(edge2, deg=False)
+        edge2 -= (self._trim_scan_edges)
+        passed3 = ((edge1 <= phi) & (phi <= edge2))
 
-      # combine the last test only if there would be a reasonable number of
-      # reflections left for refinement
-      tmp = to_update
-      to_update = to_update & passed3
-      if to_update.count(True) < 40:
-        logger.warning("Too few reflections to trim centroids from the scan "
-          "edges. Resetting trim_scan_edges=0.0")
-        to_update = tmp
+        # combine the last test only if there would be a reasonable number of
+        # reflections left for refinement
+        tmp = to_update
+        to_update = to_update & passed3
+        if to_update.count(True) < 40:
+          logger.warning("Too few reflections to trim centroids from the scan "
+            "edges. Resetting trim_scan_edges=0.0")
+          to_update = tmp
 
       # make selection
       to_keep.set_selected(sel, to_update)
