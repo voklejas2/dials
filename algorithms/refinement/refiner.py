@@ -390,7 +390,7 @@ refinement
       .type = float(value_min = 0)
       .expert_level = 1
 
-    trim_scan_edges = 0.1
+    trim_scan_edges = 0.0
       .help = "Reflections within this value in degrees from the centre of the"
               "first or last image of the scan will be removed before"
               "refinement, unless doing so would result in too few remaining"
