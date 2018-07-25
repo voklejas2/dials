@@ -36,14 +36,13 @@ def test(dials_regression, tmpdir):
   # Do refinement and load the results
 
   # turn off outlier rejection so that test takes about 4s rather than 10s
-  # set close_to_spindle_cutoff and trim_scan_edges to old default
+  # set close_to_spindle_cutoff to old default
   result = procrunner.run_process([
       "dials.refine",
       "combined_experiments.json",
       "combined_reflections.pickle",
       "outlier.algorithm=null",
       "close_to_spindle_cutoff=0.05",
-      "trim_scan_edges=0.0",
   ])
   assert result['exitcode'] == 0
   assert result['stderr'] == ''
