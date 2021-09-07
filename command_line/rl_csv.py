@@ -1,13 +1,14 @@
 # LIBTBX_SET_DISPATCHER_NAME dev.dials.csv
-from __future__ import absolute_import, division, print_function
 
 import gzip
 import io
+import warnings
 
 import iotbx.phil
-import six
-from dials.util.options import OptionParser, reflections_and_experiments_from_files
 from dxtbx.model import ExperimentList
+
+import dials.util
+from dials.util.options import OptionParser, reflections_and_experiments_from_files
 
 phil_scope = iotbx.phil.parse(
     """
@@ -25,10 +26,9 @@ output {
 """
 )
 
-master_params = phil_scope.fetch().extract()
 
-
-def run(args):
+@dials.util.show_mail_handle_errors()
+def run(args=None):
     usage = "dev.dials.csv [options] imported.expt strong.refl output.csv=rl.csv"
 
     parser = OptionParser(
@@ -39,7 +39,7 @@ def run(args):
         check_format=False,
     )
 
-    params, options = parser.parse_args(show_diff_phil=False)
+    params, options = parser.parse_args(args, show_diff_phil=False)
     reflections, experiments = reflections_and_experiments_from_files(
         params.input.reflections, params.input.experiments
     )
@@ -61,11 +61,10 @@ def run(args):
 
     if params.output.compress:
         fout = gzip.GzipFile(params.output.csv, "w")
-        if six.PY3:
-            # GzipFile() always provides binary access only.
-            # Replace the file object with one that allows writing text:
-            fout = io.TextIOWrapper(fout)
-            # Rely on garbage collection to close the underlying GzipFile.
+        # GzipFile() always provides binary access only.
+        # Replace the file object with one that allows writing text:
+        fout = io.TextIOWrapper(fout)
+        # Rely on garbage collection to close the underlying GzipFile.
     else:
         fout = open(params.output.csv, "w")
 
@@ -91,12 +90,15 @@ def run(args):
         for _rlp in rlp:
             fout.write(fmt % (_rlp[0], _rlp[1], _rlp[2], k, k))
 
-        print("Appended %d spots to %s" % (len(rlp), params.output.csv))
+        print(f"Appended {len(rlp)} spots to {params.output.csv}")
 
     fout.close()
 
 
 if __name__ == "__main__":
-    import sys
-
-    run(sys.argv[1:])
+    warnings.warn(
+        "dev.dials.csv is deprecated. Similar functionality is available"
+        " with dials.export format=json",
+        DeprecationWarning,
+    )
+    run()

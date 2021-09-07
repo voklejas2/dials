@@ -1,10 +1,10 @@
-from __future__ import absolute_import, division, print_function
-
 import collections
 import math
 from copy import deepcopy
 
 import numpy as np
+
+from dxtbx.format.nexus import h5str
 from scitbx import matrix
 
 # Extensions to NXMX
@@ -268,7 +268,7 @@ def dump_detector(entry, detector, beam, imageset, scan):
     # Create the detector depends on
     nx_detector["depends_on"] = "."
 
-    # Creat some data for example file
+    # Create some data for example file
     # data = [im.as_numpy_array() for im in imageset]
 
     # Create the nx data
@@ -507,7 +507,7 @@ def load_detector(entry):
     # Get the detector module object
     nx_instrument = get_nx_instrument(entry, "instrument")
     nx_detector = get_nx_detector(nx_instrument, "detector")
-    assert nx_detector["depends_on"][()] == "."
+    assert h5str(nx_detector["depends_on"][()]) == "."
     material = nx_detector["sensor_material"][()]
     det_type = nx_detector["type"][()]
     thickness = nx_detector["sensor_thickness"][()]
@@ -634,10 +634,9 @@ def load_scan(entry):
 
 
 def load_crystal(entry):
+    from cctbx import uctbx
     from dxtbx.model import Crystal
     from scitbx.array_family import flex
-    from cctbx import uctbx
-    import numpy
 
     # Get the sample
     nx_sample = get_nx_sample(entry, "sample")
@@ -646,17 +645,19 @@ def load_crystal(entry):
     space_group_symbol = nx_sample["unit_cell_group"][()]
 
     # Get depends on
-    if nx_sample["depends_on"][()] != ".":
-        assert nx_sample["depends_on"][()] == str(nx_sample["transformations/phi"].name)
+    if h5str(nx_sample["depends_on"][()]) != ".":
+        assert h5str(nx_sample["depends_on"][()]) == h5str(
+            nx_sample["transformations/phi"].name
+        )
 
     # Read the average unit cell data
-    average_unit_cell = flex.double(numpy.array(nx_sample["average_unit_cell"]))
+    average_unit_cell = flex.double(np.array(nx_sample["average_unit_cell"]))
     assert nx_sample["average_unit_cell"].attrs["angles_units"] == "deg"
     assert nx_sample["average_unit_cell"].attrs["length_units"] == "angstrom"
     assert len(average_unit_cell.all()) == 1
     assert len(average_unit_cell) == 6
     average_orientation_matrix = flex.double(
-        numpy.array(nx_sample["average_orientation_matrix"])
+        np.array(nx_sample["average_orientation_matrix"])
     )
     assert len(average_orientation_matrix.all()) == 2
     assert average_orientation_matrix.all()[0] == 3
@@ -673,12 +674,12 @@ def load_crystal(entry):
     real_space_c = A[6:9]
 
     # Read the unit cell data
-    unit_cell = flex.double(numpy.array(nx_sample["unit_cell"]))
+    unit_cell = flex.double(np.array(nx_sample["unit_cell"]))
     assert nx_sample["unit_cell"].attrs["angles_units"] == "deg"
     assert nx_sample["unit_cell"].attrs["length_units"] == "angstrom"
 
     # Read the orientation matrix
-    orientation_matrix = flex.double(numpy.array(nx_sample["orientation_matrix"]))
+    orientation_matrix = flex.double(np.array(nx_sample["orientation_matrix"]))
     assert len(unit_cell.all()) == 2
     assert len(orientation_matrix.all()) == 3
     assert unit_cell.all()[0] == orientation_matrix.all()[0]
@@ -721,8 +722,6 @@ def dump(entry, experiments, params):
         features.resize((len(features) + 1,))
         features[len(features) - 1] = 6
     else:
-        import numpy as np
-
         features = entry.create_dataset(
             "features", (1,), maxshape=(None,), dtype=np.uint64
         )
@@ -823,9 +822,9 @@ def find_nx_mx_entries(nx_file, entry):
 
     def visitor(name, obj):
         if "NX_class" in obj.attrs:
-            if obj.attrs["NX_class"] in ["NXentry", "NXsubentry"]:
+            if h5str(obj.attrs["NX_class"]) in ["NXentry", "NXsubentry"]:
                 if "definition" in obj:
-                    if obj["definition"][()] == "NXmx":
+                    if h5str(obj["definition"][()]) == "NXmx":
                         hits.append(obj)
 
     nx_file[entry].visititems(visitor)
@@ -833,8 +832,7 @@ def find_nx_mx_entries(nx_file, entry):
 
 
 def load(entry, exp_index):
-    from dxtbx.model.experiment_list import ExperimentList
-    from dxtbx.model.experiment_list import Experiment
+    from dxtbx.model.experiment_list import Experiment, ExperimentList
 
     print("Loading NXmx")
 
@@ -862,7 +860,7 @@ def load(entry, exp_index):
 
         # Get the definition
         definition = nxmx["definition"]
-        assert definition[()] == "NXmx"
+        assert h5str(definition[()]) == "NXmx"
         assert definition.attrs["version"] == 1
 
         # Get dials specific stuff

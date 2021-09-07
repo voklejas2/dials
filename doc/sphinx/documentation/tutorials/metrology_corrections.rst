@@ -1,8 +1,8 @@
 .. raw:: html
 
-  <a href="https://dials.github.io/dials-1.14/documentation/tutorials/metrology_corrections.html" class="new-documentation">
-  This tutorial requires a DIALS 2.0 installation.<br/>
-  Please click here to go to the tutorial for DIALS 1.14.
+  <a href="https://dials.github.io/dials-2.2/documentation/tutorials/metrology_corrections.html" class="new-documentation">
+  This tutorial requires a DIALS 3 installation.<br/>
+  Please click here to go to the tutorial for DIALS 2.2.
   </a>
 
 Refining multi-tile detector metrology with DIALS
@@ -959,7 +959,7 @@ shifts and mis-orientations has improved the overall profile fitting
 mean :math:`\frac{I}{\sigma_I}` and correlation coefficients. However, comparing
 the tables of results binned by resolution we see that the improvements are limited
 to the low resolution, and the results are worse at high resolution. For example,
-we can make a quick plot of the profile fitting correlation coeffients.
+we can make a quick plot of the profile fitting correlation coefficients.
 
   .. image:: /figures/CC_metrology_comparison.png
 

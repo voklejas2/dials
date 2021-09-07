@@ -1,7 +1,4 @@
-from __future__ import absolute_import, division, print_function
-
-
-class GaussianRSMaskCalculatorFactory(object):
+class GaussianRSMaskCalculatorFactory:
     """
     Factory class for mask calculator
     """
@@ -13,8 +10,6 @@ class GaussianRSMaskCalculatorFactory(object):
         """
         from dials.algorithms.integration.parallel_integrator import (
             GaussianRSMaskCalculator,
-        )
-        from dials.algorithms.integration.parallel_integrator import (
             GaussianRSMultiCrystalMaskCalculator,
         )
 
@@ -32,7 +27,7 @@ class GaussianRSMaskCalculatorFactory(object):
         return result
 
 
-class GaussianRSIntensityCalculatorFactory(object):
+class GaussianRSIntensityCalculatorFactory:
     """
     A class to create the intensity calculator
     """
@@ -50,7 +45,7 @@ class GaussianRSIntensityCalculatorFactory(object):
         return GaussianRSIntensityCalculator(data, detector_space, deconvolution)
 
 
-class GaussianRSReferenceCalculatorFactory(object):
+class GaussianRSReferenceCalculatorFactory:
     """
     A class to create the reference calculator
     """
@@ -60,15 +55,17 @@ class GaussianRSReferenceCalculatorFactory(object):
         """
         Create the intensity calculator
         """
+        from math import ceil
+
         from dials.algorithms.integration.parallel_integrator import (
             GaussianRSReferenceCalculator,
         )
-        from dials.algorithms.profile_model.modeller import SingleSampler
-        from dials.algorithms.profile_model.modeller import CircleSampler
-        from dials.algorithms.profile_model.modeller import GridSampler
         from dials.algorithms.profile_model.gaussian_rs.transform import TransformSpec
-
-        from math import ceil
+        from dials.algorithms.profile_model.modeller import (
+            CircleSampler,
+            GridSampler,
+            SingleSampler,
+        )
 
         # Assume the detector and scan are the same in each case
         detector = experiments[0].detector

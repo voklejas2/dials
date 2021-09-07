@@ -1,14 +1,11 @@
-from __future__ import absolute_import, division, print_function
-
 import numpy as np
 import wx
+
 from dials.array_family import flex
 from dials_viewer_ext import rgb_img
 
-WX3 = wx.VERSION[0] == 3
 
-
-class wxbmp_from_np_array(object):
+class wxbmp_from_np_array:
     def __init__(
         self, lst_data_in, show_nums=True, palette="black2white", lst_data_mask_in=None
     ):
@@ -56,7 +53,7 @@ class wxbmp_from_np_array(object):
 
             NewW = 350
 
-            wx_image = wx.EmptyImage(NewW, NewW)
+            wx_image = wx.Image(NewW, NewW)
             wxBitmap = wx_image.ConvertToBitmap()
 
             dc = wx.MemoryDC(wxBitmap)
@@ -117,9 +114,7 @@ class wxbmp_from_np_array(object):
         img_array = np.empty((height, width, 3), "uint8")
         img_array[:, :, :] = np_img_array[:, :, :]
 
-        self._wx_image = (
-            wx.EmptyImage(width, height) if WX3 else wx.Image(width, height)
-        )
+        self._wx_image = wx.Image(width, height)
         self._wx_image.SetData(img_array.tostring())
 
         data_to_become_bmp = (self._wx_image, width, height)

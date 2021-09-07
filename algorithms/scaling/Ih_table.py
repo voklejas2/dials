@@ -4,36 +4,39 @@ A datastructure for summing over groups of symmetry equivalent reflections.
 This module defines a blocked datastructures for summing over groups of
 symmetry equivalent reflections, as required for scaling.
 """
-from __future__ import absolute_import, division, print_function
 
-from cctbx import miller, crystal, uctbx
-from dials.array_family import flex
 from orderedset import OrderedSet
+
+from cctbx import crystal, miller, uctbx
 from scitbx import sparse
 
+from dials.array_family import flex
 
-def map_indices_to_asu(miller_indices, space_group):
+
+def map_indices_to_asu(miller_indices, space_group, anomalous=False):
     """Map the indices to the asymmetric unit."""
     crystal_symmetry = crystal.symmetry(space_group=space_group)
     miller_set = miller.set(
-        crystal_symmetry=crystal_symmetry, indices=miller_indices, anomalous_flag=False
+        crystal_symmetry=crystal_symmetry,
+        indices=miller_indices,
+        anomalous_flag=anomalous,
     )
     miller_set_in_asu = miller_set.map_to_asu()
     return miller_set_in_asu.indices()
 
 
-def get_sorted_asu_indices(asu_indices, space_group):
+def get_sorted_asu_indices(asu_indices, space_group, anomalous=False):
     """Return the sorted asu indices and the permutation selection."""
     crystal_symmetry = crystal.symmetry(space_group=space_group)
     miller_set_in_asu = miller.set(
-        crystal_symmetry=crystal_symmetry, indices=asu_indices, anomalous_flag=False
+        crystal_symmetry=crystal_symmetry, indices=asu_indices, anomalous_flag=anomalous
     )
     permuted = miller_set_in_asu.sort_permutation(by_value="packed_indices")
     sorted_asu_miller_index = asu_indices.select(permuted)
     return sorted_asu_miller_index, permuted
 
 
-class IhTable(object):
+class IhTable:
     """
     A class to manage access to Ih_table blocks.
 
@@ -45,9 +48,6 @@ class IhTable(object):
     This class acts as a 'master' to setup the block structure and control access
     to the underlying blocks - only metadata is kept in this class after
     initialisation, the reflections etc are all contained in the blocks.
-    To set data in the blocks, methods are provided by the master, e.g
-    set_intensities(intensities, block_id) which are delegated down to the
-    appropriate block.
 
     Attributes:
         space_group: The space group for the dataset.
@@ -75,6 +75,7 @@ class IhTable(object):
         free_set_percentage=0,
         free_set_offset=0,
         additional_cols=None,
+        anomalous=False,
     ):
         """
         Distribute the input data into the required structure.
@@ -84,7 +85,7 @@ class IhTable(object):
 
         A list of flex.size_t indices can be provided - this allows the
         reflection table data to maintain a reference to a dataset from which
-        it was selecte; these will be used when making the block selections.
+        it was selected; these will be used when making the block selections.
         e.g selection = flex.bool([True, False, True])
             r_1 = r_master.select(selection)
             indices_list = selection.iselection() = flex.size_t([0, 2])
@@ -93,6 +94,7 @@ class IhTable(object):
         """
         if indices_lists:
             assert len(indices_lists) == len(reflection_tables)
+        self.anomalous = anomalous
         self.asu_index_dict = {}
         self.space_group = space_group
         self.n_work_blocks = nblocks
@@ -137,8 +139,6 @@ class IhTable(object):
             end = block.dataset_info[dataset_id]["end_index"]
             sel = flex.size_t(range(start, end))
             block.Ih_table[column].set_selected(sel, data_for_block)
-            if column == "variance":
-                block.Ih_table["weights"].set_selected(sel, 1.0 / data_for_block)
 
     def get_block_selections_for_dataset(self, dataset):
         """Generate the block selection list for a given dataset."""
@@ -165,27 +165,15 @@ class IhTable(object):
             block.block_selections for block in self.Ih_table_blocks
         ]
 
-    def update_weights(self, block_id=None):
-        """Update weights (to allow iterative updating, not implemented)."""
-
-    def update_error_model(self, error_model):
+    def update_weights(self, error_model=None, dataset_id=None):
         """Update the error model in the blocks."""
         for block in self.Ih_table_blocks:
-            block.update_error_model(error_model)
-
-    def reset_error_model(self):
-        """Reset the weights in the blocks."""
-        for block in self.Ih_table_blocks:
-            block.reset_error_model()
+            block.update_weights(error_model, dataset_id)
 
     @property
     def blocked_data_list(self):
         """Return the list of IhTableBlock instances."""
         return self.Ih_table_blocks
-
-    def set_intensities(self, intensities, block_id):
-        """Set the intensities for a given block."""
-        self.Ih_table_blocks[block_id].Ih_table["intensity"] = intensities
 
     def set_derivatives(self, derivatives, block_id):
         """Set the derivatives matrix for a given block."""
@@ -194,11 +182,6 @@ class IhTable(object):
     def set_inverse_scale_factors(self, new_scales, block_id):
         """Set the inverse scale factors for a given block."""
         self.Ih_table_blocks[block_id].inverse_scale_factors = new_scales
-
-    def set_variances(self, new_variances, block_id):
-        """Set the variances and weights for a given block."""
-        self.Ih_table_blocks[block_id].Ih_table["variance"] = new_variances
-        self.Ih_table_blocks[block_id].Ih_table["weights"] = 1.0 / new_variances
 
     def calc_Ih(self, block_id=None):
         """Calculate the latest value of Ih, for a given block or for all blocks."""
@@ -219,11 +202,11 @@ class IhTable(object):
         for table in reflection_tables:
             if "asu_miller_index" not in table:
                 table["asu_miller_index"] = map_indices_to_asu(
-                    table["miller_index"], self.space_group
+                    table["miller_index"], self.space_group, self.anomalous
                 )
             joint_asu_indices.extend(table["asu_miller_index"])
         sorted_joint_asu_indices, _ = get_sorted_asu_indices(
-            joint_asu_indices, self.space_group
+            joint_asu_indices, self.space_group, self.anomalous
         )
 
         asu_index_set = OrderedSet(sorted_joint_asu_indices)
@@ -288,7 +271,7 @@ class IhTable(object):
         self, dataset_id, reflections, indices_array=None, additional_cols=None
     ):
         sorted_asu_indices, perm = get_sorted_asu_indices(
-            reflections["asu_miller_index"], self.space_group
+            reflections["asu_miller_index"], self.space_group, self.anomalous
         )
         r = flex.reflection_table()
         r["intensity"] = reflections["intensity"]
@@ -345,7 +328,7 @@ class IhTable(object):
             n_groups = block.h_index_matrix.n_cols
             groups_for_free_set = flex.bool(n_groups, False)
             for_free = flex.size_t(
-                [i for i in range(0 + offset, n_groups, interval_between_groups)]
+                list(range(0 + offset, n_groups, interval_between_groups))
             )
             groups_for_free_set.set_selected(for_free, True)
             free_block = block.select_on_groups(groups_for_free_set)
@@ -374,7 +357,9 @@ class IhTable(object):
             dataset_sel = free_reflection_table["dataset_id"] == id_
             tables.append(free_reflection_table.select(dataset_sel))
             indices_lists.append(free_indices.select(dataset_sel))
-        free_Ih_table = IhTable(tables, self.space_group, indices_lists, nblocks=1)
+        free_Ih_table = IhTable(
+            tables, self.space_group, indices_lists, nblocks=1, anomalous=self.anomalous
+        )
         # add to blocks list and selection list
         self.Ih_table_blocks.append(free_Ih_table.blocked_data_list[0])
         self.blocked_selection_list.append(free_Ih_table.blocked_selection_list[0])
@@ -407,7 +392,7 @@ class IhTable(object):
         return _reflection_table_to_iobs(joint_table, unit_cell, self.space_group)
 
 
-class IhTableBlock(object):
+class IhTableBlock:
     """
     A datastructure for efficient summations over symmetry equivalent reflections.
 
@@ -463,7 +448,7 @@ Not enough space left to add this data, please check for correct block initialis
         assert (
             dataset_id == self._setup_info["next_dataset"]
         ), """
-Datasets must be added in correct order: expected: %s, this dataset: %s""" % (
+Datasets must be added in correct order: expected: {}, this dataset: {}""".format(
             self._setup_info["next_dataset"],
             dataset_id,
         )
@@ -490,7 +475,7 @@ Datasets must be added in correct order: expected: %s, this dataset: %s""" % (
         ), """
 Not all rows of h_index_matrix appear to be filled in IhTableBlock setup."""
         self.h_expand_matrix = self.h_index_matrix.transpose()
-        self.Ih_table["weights"] = 1.0 / self.Ih_table["variance"]
+        self.weights = 1.0 / self.variances
         self._setup_info["setup_complete"] = True
 
     def group_multiplicities(self):
@@ -540,23 +525,33 @@ Not all rows of h_index_matrix appear to be filled in IhTableBlock setup."""
     def calc_Ih(self):
         """Calculate the current best estimate for Ih for each reflection group."""
         scale_factors = self.Ih_table["inverse_scale_factor"]
-        gsq = flex.pow2(scale_factors) * self.Ih_table["weights"]
+        gsq = flex.pow2(scale_factors) * self.weights
         sumgsq = gsq * self.h_index_matrix
-        gI = (scale_factors * self.Ih_table["intensity"]) * self.Ih_table["weights"]
+        gI = (scale_factors * self.Ih_table["intensity"]) * self.weights
         sumgI = gI * self.h_index_matrix
         Ih = sumgI / sumgsq
         self.Ih_table["Ih_values"] = Ih * self.h_expand_matrix
 
-    def update_error_model(self, error_model):
+    def update_weights(self, error_model=None, dataset_id=None):
         """Update the scaling weights based on an error model."""
-        sigmaprimesq = error_model.update_variances(
-            self.Ih_table["variance"], self.Ih_table["intensity"]
-        )
-        self.Ih_table["weights"] = 1.0 / sigmaprimesq
-
-    def reset_error_model(self):
-        """Reset the weights to their initial value."""
-        self.Ih_table["weights"] = 1.0 / self.Ih_table["variance"]
+        if error_model:
+            if dataset_id is not None:  # note the first dataset has an id of 0
+                sel = self.Ih_table["dataset_id"] == dataset_id
+                sigmaprimesq = error_model.update_variances(
+                    self.variances.select(sel), self.intensities.select(sel)
+                )
+                self.weights.set_selected(sel, 1.0 / sigmaprimesq)
+            else:
+                sigmaprimesq = error_model.update_variances(
+                    self.variances, self.intensities
+                )
+                self.weights = 1.0 / sigmaprimesq
+        else:
+            if dataset_id is not None:  # note the first dataset has an id of 0
+                sel = self.Ih_table["dataset_id"] == dataset_id
+                self.weights.set_selected(sel, 1.0 / self.variances.select(sel))
+            else:
+                self.weights = 1.0 / self.variances
 
     def calc_nh(self):
         """Calculate the number of refls in the group to which the reflection belongs.
@@ -584,7 +579,9 @@ Not all rows of h_index_matrix appear to be filled in IhTableBlock setup."""
         new_Ih_values = flex.double(self.size, 0.0)
         location_in_unscaled_array = 0
         sorted_asu_indices, permuted = get_sorted_asu_indices(
-            self.Ih_table["asu_miller_index"], target_Ih_table.space_group
+            self.Ih_table["asu_miller_index"],
+            target_Ih_table.space_group,
+            anomalous=target_Ih_table.anomalous,
         )
         for j, miller_idx in enumerate(OrderedSet(sorted_asu_indices)):
             n_in_group = self.h_index_matrix.col(j).non_zeroes
@@ -613,7 +610,7 @@ Not all rows of h_index_matrix appear to be filled in IhTableBlock setup."""
     def inverse_scale_factors(self, new_scales):
         if new_scales.size() != self.size:
             assert 0, """attempting to set a new set of scale factors of different
-      length than previous assignment: was %s, attempting %s""" % (
+      length than previous assignment: was {}, attempting {}""".format(
                 self.inverse_scale_factors.size(),
                 new_scales.size(),
             )
@@ -625,10 +622,20 @@ Not all rows of h_index_matrix appear to be filled in IhTableBlock setup."""
         """The variances of the reflections."""
         return self.Ih_table["variance"]
 
+    @variances.setter
+    def variances(self, new_variances):
+        assert new_variances.size() == self.size
+        self.Ih_table["variance"] = new_variances
+
     @property
     def intensities(self):
         """The unscaled reflection intensities."""
         return self.Ih_table["intensity"]
+
+    @intensities.setter
+    def intensities(self, new_intensities):
+        assert new_intensities.size() == self.size
+        self.Ih_table["intensity"] = new_intensities
 
     @property
     def Ih_values(self):
@@ -644,7 +651,7 @@ Not all rows of h_index_matrix appear to be filled in IhTableBlock setup."""
     def weights(self, new_weights):
         if new_weights.size() != self.size:
             assert 0, """attempting to set a new set of weights of different
-      length than previous assignment: was %s, attempting %s""" % (
+      length than previous assignment: was {}, attempting {}""".format(
                 self.size,
                 new_weights.size(),
             )
@@ -676,7 +683,8 @@ Not all rows of h_index_matrix appear to be filled in IhTableBlock setup."""
         relative_tolerance = 1e-6
         d_star_sq_max += span * relative_tolerance
         d_star_sq_min -= span * relative_tolerance
-        step = (d_star_sq_max - d_star_sq_min) / n_resolution_bins
+        # Avoid a zero-size step that would otherwise anger the d_star_sq_step binner.
+        step = max((d_star_sq_max - d_star_sq_min) / n_resolution_bins, 0.004)
 
         self.binner = ma.setup_binner_d_star_sq_step(
             auto_binning=False,

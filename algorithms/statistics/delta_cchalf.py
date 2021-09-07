@@ -1,18 +1,15 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
 from collections import defaultdict
-from math import sqrt, floor
+from math import floor, sqrt
 
-from cctbx import miller
-from cctbx import crystal
+from cctbx import crystal, miller
+
 from dials.array_family import flex
-import six
 
 logger = logging.getLogger("dials.command_line.compute_delta_cchalf")
 
 
-class ResolutionBinner(object):
+class ResolutionBinner:
     """
     A class to bin the data by resolution
     """
@@ -45,7 +42,7 @@ class ResolutionBinner(object):
                 self._xmin + (i + 1) * self._bin_size,
             )
             if output:
-                logger.info("%d: %.3f, %.3f" % (i, sqrt(1 / b0), sqrt(1 / b1)))
+                logger.info("%d: %.3f, %.3f", i, sqrt(1 / b0), sqrt(1 / b1))
             self._bins.append((b0, b1))
 
     def nbins(self):
@@ -71,7 +68,7 @@ class ResolutionBinner(object):
         return bin_index
 
 
-class ReflectionSum(object):
+class ReflectionSum:
     """
     A helper class to store sums of X and X**2
     """
@@ -82,7 +79,7 @@ class ReflectionSum(object):
         self.n = n
 
 
-class BinData(object):
+class BinData:
     """
     A helper class to store mean and variance
     """
@@ -154,7 +151,7 @@ def compute_cchalf_from_reflection_sums(reflection_sums, binner):
     return compute_mean_cchalf_in_bins(bin_data)
 
 
-class PerGroupCChalfStatistics(object):
+class PerGroupCChalfStatistics:
     def __init__(
         self,
         reflection_table,
@@ -181,7 +178,7 @@ class PerGroupCChalfStatistics(object):
 
         for r in required:
             if r not in reflection_table:
-                raise KeyError("Column %s not present in reflection table" % r)
+                raise KeyError(f"Column {r} not present in reflection table")
         # now do a prefiltering
         self.map_to_asu()
         self.d_filter()
@@ -253,7 +250,7 @@ Summary of input data:
         self.reflection_table.select(sel)
 
     def run(self):
-        """Compute the delta CC 1/2 for all the data"""
+        """Compute the ΔCC½ for all the data"""
         self._cchalf_mean = compute_cchalf_from_reflection_sums(
             self.reflection_sums, self.binner
         )
@@ -339,6 +336,6 @@ Summary of input data:
 
     def delta_cchalf_i(self):
         """
-        Return the Delta CC 1/2 for each image excluded
+        Return the ΔCC½ for each image excluded
         """
-        return {k: self._cchalf_mean - v for k, v in six.iteritems(self._cchalf)}
+        return {k: self._cchalf_mean - v for k, v in self._cchalf.items()}

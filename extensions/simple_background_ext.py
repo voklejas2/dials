@@ -1,7 +1,4 @@
-from __future__ import absolute_import, division, print_function
-
-
-class SimpleBackgroundExt(object):
+class SimpleBackgroundExt:
     """An extension class implementing simple background subtraction."""
 
     name = "simple"
@@ -105,6 +102,7 @@ class SimpleBackgroundExt(object):
         :param experiments: The list of experiments
         """
         from libtbx.phil import parse
+
         from dials.algorithms.background.simple import BackgroundAlgorithm
 
         # Create some default parameters

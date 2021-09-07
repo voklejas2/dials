@@ -1,27 +1,27 @@
-# coding: utf-8
-
-from __future__ import absolute_import, division, print_function
-
 import logging
 import math
+
 import pkg_resources
 
-from cctbx import sgtbx
-
-import dials.util
 import iotbx.phil
 import libtbx
-from dials.array_family import flex
-from dials.util.multi_dataset_handling import generate_experiment_identifiers
-from dials.algorithms.indexing import assign_indices
-from dials.algorithms.indexing import DialsIndexError, DialsIndexRefineError
+from cctbx import sgtbx
+from dxtbx.model import ExperimentList, ImageSequence
+
+import dials.util
+from dials.algorithms.indexing import (
+    DialsIndexError,
+    DialsIndexRefineError,
+    assign_indices,
+)
 from dials.algorithms.indexing.compare_orientation_matrices import (
     difference_rotation_matrix_axis_angle,
 )
-from dials.algorithms.indexing.symmetry import SymmetryHandler
 from dials.algorithms.indexing.max_cell import find_max_cell
+from dials.algorithms.indexing.symmetry import SymmetryHandler
 from dials.algorithms.refinement import DialsRefineConfigError, DialsRefineRuntimeError
-from dxtbx.model import ExperimentList, ImageSequence
+from dials.array_family import flex
+from dials.util.multi_dataset_handling import generate_experiment_identifiers
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ max_cell_estimation
     .expert_level = 2
   step_size = 45
     .type = float(value_min=0)
-    .help = "Step size, in degrees, of the blocks used to peform the max_cell "
+    .help = "Step size, in degrees, of the blocks used to perform the max_cell "
             "estimation."
     .expert_level = 2
   nearest_neighbor_percentile = None
@@ -110,7 +110,7 @@ indexing {
       .help = "Target unit cell for indexing."
     relative_length_tolerance = 0.1
       .type = float
-      .help = "Relative tolerance for unit cell lengths in unit cell comparision."
+      .help = "Relative tolerance for unit cell lengths in unit cell comparison."
       .expert_level = 1
     absolute_angle_tolerance = 5
       .type = float
@@ -192,9 +192,6 @@ indexing {
   multiple_lattice_search
     .expert_level = 1
   {
-    cluster_analysis_search = False
-      .type = bool
-      .help = "Perform cluster analysis search for multiple lattices."
     recycle_unindexed_reflections_cutoff = 0.1
       .type = float(value_min=0, value_max=1)
       .help = "Attempt another cycle of indexing on the unindexed reflections "
@@ -248,7 +245,7 @@ indexing {
     candidate_outlier_rejection = True
       .type = bool
       .expert_level = 1
-      .help = If True, while refining candiate basis solutions, also apply Sauter/ \
+      .help = If True, while refining candidate basis solutions, also apply Sauter/ \
               Poon (2010) outlier rejection
     refine_candidates_with_known_symmetry = False
       .type = bool
@@ -299,8 +296,8 @@ indexing {
 phil_scope = iotbx.phil.parse(phil_str, process_includes=True)
 
 
-class Indexer(object):
-    def __init__(self, reflections, experiments, params=None):
+class Indexer:
+    def __init__(self, reflections, experiments, params):
         self.reflections = reflections
         self.experiments = experiments
 
@@ -415,9 +412,14 @@ class Indexer(object):
                 from dxtbx.imageset import ImageSet  # , MemImageSet
 
                 for experiment in experiments:
-                    experiment.imageset = ImageSet(
-                        experiment.imageset.data(), experiment.imageset.indices()
-                    )
+                    # Elsewhere, checks are made for ImageSequence when picking between algorithms
+                    # specific to rotations vs. stills, so here reset any ImageSequences to stills.
+                    # Note, dials.stills_process resets ImageSequences to ImageSets already,
+                    # and it's not free (the ImageSet cache is dropped), only do it if needed
+                    if isinstance(experiment.imageset, ImageSequence):
+                        experiment.imageset = ImageSet(
+                            experiment.imageset.data(), experiment.imageset.indices()
+                        )
                     # if isinstance(imageset, MemImageSet):
                     #   imageset = MemImageSet(imagesequence._images, imagesequence.indices())
                     # else:
@@ -527,8 +529,8 @@ class Indexer(object):
                 crystal_ids = self.reflections.select(d_spacings > d_min_indexed)["id"]
                 if (crystal_ids == -1).count(True) < min_reflections_for_indexing:
                     logger.info(
-                        "Finish searching for more lattices: %i unindexed reflections remaining."
-                        % ((crystal_ids == -1).count(True))
+                        "Finish searching for more lattices: %i unindexed reflections remaining.",
+                        (crystal_ids == -1).count(True),
                     )
                     break
 
@@ -560,13 +562,14 @@ class Indexer(object):
                         self.d_min - d_min_all
                     ) / (n_cycles - 1)
                     logger.info(
-                        "Using d_min_step %.1f"
-                        % self.params.refinement_protocol.d_min_step
+                        "Using d_min_step %.1f",
+                        self.params.refinement_protocol.d_min_step,
                     )
 
             if len(experiments) == 0:
                 raise DialsIndexError("No suitable lattice could be found.")
             elif len(experiments) == n_lattices_previous_cycle:
+                logger.warning("No more suitable lattices could be found")
                 # no more lattices found
                 break
 
@@ -582,7 +585,7 @@ class Indexer(object):
                         d_min = max(d_min, self.params.refinement_protocol.d_min_final)
                     if d_min >= 0:
                         self.d_min = d_min
-                        logger.info("Increasing resolution to %.2f Angstrom" % d_min)
+                        logger.info("Increasing resolution to %.2f Angstrom", d_min)
 
                 # reset reflection lattice flags
                 # the lattice a given reflection belongs to: a value of -1 indicates
@@ -605,7 +608,7 @@ class Indexer(object):
 
                 logger.info("")
                 logger.info("#" * 80)
-                logger.info("Starting refinement (macro-cycle %i)" % (i_cycle + 1))
+                logger.info("Starting refinement (macro-cycle %i)", i_cycle + 1)
                 logger.info("#" * 80)
                 logger.info("")
                 self.indexed_reflections = self.reflections["id"] > -1
@@ -648,6 +651,17 @@ class Indexer(object):
                         logger.info("Refinement failed:")
                         logger.info(e)
                         del experiments[-1]
+
+                        # remove experiment id from the reflections associated
+                        # with this deleted experiment - indexed flag removed
+                        # below
+                        last = len(experiments)
+                        sel = refined_reflections["id"] == last
+                        logger.info(
+                            "Removing %d reflections with id %d", sel.count(True), last
+                        )
+                        refined_reflections["id"].set_selected(sel, -1)
+
                         break
 
                 self._unit_cell_volume_sanity_check(experiments, refined_experiments)
@@ -708,7 +722,7 @@ class Indexer(object):
                 rotation_matrix_differences(self.refined_experiments.crystals())
             )
 
-        self._xyzcal_mm_to_px(self.experiments, self.refined_reflections)
+        self._xyzcal_mm_to_px(self.refined_experiments, self.refined_reflections)
 
     def _unit_cell_volume_sanity_check(self, original_experiments, refined_experiments):
         # sanity check for unrealistic unit cell volume increase during refinement
@@ -723,15 +737,18 @@ class Indexer(object):
                 volume_change = abs(uc1.volume() - uc2.volume()) / uc1.volume()
                 cutoff = 0.5
                 if volume_change > cutoff:
-                    msg = "\n".join(
-                        (
-                            "Unrealistic unit cell volume increase during refinement of %.1f%%.",
-                            "Please try refining fewer parameters, either by enforcing symmetry",
-                            "constraints (space_group=) and/or disabling experimental geometry",
-                            "refinement (detector.fix=all and beam.fix=all). To disable this",
-                            "sanity check set disable_unit_cell_volume_sanity_check=True.",
+                    msg = (
+                        "\n".join(
+                            (
+                                "Unrealistic unit cell volume increase during refinement of %.1f%%.",
+                                "Please try refining fewer parameters, either by enforcing symmetry",
+                                "constraints (space_group=) and/or disabling experimental geometry",
+                                "refinement (detector.fix=all and beam.fix=all). To disable this",
+                                "sanity check set disable_unit_cell_volume_sanity_check=True.",
+                            )
                         )
-                    ) % (100 * volume_change)
+                        % (100 * volume_change)
+                    )
                     raise DialsIndexError(msg)
 
     def _apply_symmetry_post_indexing(
@@ -773,16 +790,17 @@ class Indexer(object):
             min_angle = self.params.multiple_lattice_search.minimum_angular_separation
             if abs(angle) < min_angle:  # degrees
                 logger.info(
-                    "Crystal models too similar, rejecting crystal %i:"
-                    % (len(experiments))
+                    "Crystal models too similar, rejecting crystal %i:",
+                    len(experiments),
                 )
                 logger.info(
-                    "Rotation matrix to transform crystal %i to crystal %i"
-                    % (i_a + 1, len(experiments))
+                    "Rotation matrix to transform crystal %i to crystal %i",
+                    i_a + 1,
+                    len(experiments),
                 )
                 logger.info(R_ab)
                 logger.info(
-                    "Rotation of %.3f degrees" % angle
+                    f"Rotation of {angle:.3f} degrees"
                     + " about axis (%.3f, %.3f, %.3f)" % axis
                 )
                 have_similar_crystal_models = True
@@ -823,8 +841,9 @@ class Indexer(object):
             reflections = reflections.select(d_spacings > d_min)
         for i_expt, expt in enumerate(experiments):
             logger.info(
-                "model %i (%i reflections):"
-                % (i_expt + 1, (reflections["id"] == i_expt).count(True))
+                "model %i (%i reflections):",
+                i_expt + 1,
+                (reflections["id"] == i_expt).count(True),
             )
             logger.info(expt.crystal)
 
@@ -840,7 +859,7 @@ class Indexer(object):
                     str(i),
                     str(indexed_count),
                     str(unindexed_count),
-                    "{:.1%}".format(indexed_count / (indexed_count + unindexed_count)),
+                    f"{indexed_count / (indexed_count + unindexed_count):.1%}",
                 ]
             )
         logger.info(dials.util.tabulate(rows, headers="firstrow"))
@@ -853,7 +872,7 @@ class Indexer(object):
                     self._symmetry_handler.target_symmetry_primitive.unit_cell().parameters()
                 )
                 self.params.max_cell = params.multiplier * max(uc_params[:3])
-                logger.info("Using max_cell: %.1f Angstrom" % (self.params.max_cell))
+                logger.info("Using max_cell: %.1f Angstrom", self.params.max_cell)
             else:
                 self.params.max_cell = find_max_cell(
                     self.reflections,
@@ -867,7 +886,7 @@ class Indexer(object):
                     filter_overlaps=params.filter_overlaps,
                     overlaps_border=params.overlaps_border,
                 ).max_cell
-                logger.info("Found max_cell: %.1f Angstrom" % (self.params.max_cell))
+                logger.info("Found max_cell: %.1f Angstrom", self.params.max_cell)
 
     def index_reflections(self, experiments, reflections):
         self._assign_indices(reflections, experiments, d_min=self.d_min)

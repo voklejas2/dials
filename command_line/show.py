@@ -1,15 +1,17 @@
-from __future__ import absolute_import, division, print_function
-
 import collections
 import os
+import sys
+
+import numpy as np
 
 import iotbx.phil
-import numpy
 from cctbx import uctbx
-from dials.array_family import flex
-from dials.util import Sorry, tabulate
 from dxtbx.model.experiment_list import ExperimentListFactory
 from scitbx.math import five_number_summary
+
+import dials.util
+from dials.array_family import flex
+from dials.util import Sorry, tabulate
 
 help_message = """
 
@@ -45,9 +47,6 @@ show_flags = False
 show_identifiers = False
   .type = bool
   .help = "Show experiment identifiers map if set"
-show_image_statistics = False
-  .type = bool
-  .help = "Deprecated option, please use image_statistics instead"
 image_statistics{
   show_corrected = False
     .type = bool
@@ -108,20 +107,20 @@ def show_beam(detector, beam):
                 y_px,
             )
             x_raw_px, y_raw_px = beam_centre_raw_image_px(detector, beam.get_s0())
-            beam_centre_raw_px_str = "    px, raw image: (%.2f,%.2f)" % (
+            beam_centre_raw_px_str = "    px, raw image: ({:.2f},{:.2f})".format(
                 x_raw_px,
                 y_raw_px,
             )
             x_raw_mm, y_raw_mm = detector[panel_id].pixel_to_millimeter(
                 (x_raw_px, y_raw_px)
             )
-            beam_centre_raw_mm_str = "    mm, raw image: (%.2f,%.2f)" % (
+            beam_centre_raw_mm_str = "    mm, raw image: ({:.2f},{:.2f})".format(
                 x_raw_mm,
                 y_raw_mm,
             )
         else:
-            beam_centre_mm_str = "    mm: (%.2f,%.2f)" % (x, y)
-            beam_centre_px_str = "    px: (%.2f,%.2f)" % (x_px, y_px)
+            beam_centre_mm_str = f"    mm: ({x:.2f},{y:.2f})"
+            beam_centre_px_str = f"    px: ({x_px:.2f},{y_px:.2f})"
             beam_centre_raw_px_str = ""
             beam_centre_raw_mm_str = ""
 
@@ -150,13 +149,13 @@ def show_beam(detector, beam):
         xy = [detector[pnl].millimeter_to_pixel(e) for e in xy]
         x_px, y_px = zip(*xy)
 
-        s += "Beam centre range (mm): ([%.2f,%.2f],[%.2f,%.2f])\n" % (
+        s += "Beam centre range (mm): ([{:.2f},{:.2f}],[{:.2f},{:.2f}])\n".format(
             min(x_mm),
             max(x_mm),
             min(y_mm),
             max(y_mm),
         )
-        s += "Beam centre range (px): ([%.2f,%.2f],[%.2f,%.2f])\n" % (
+        s += "Beam centre range (px): ([{:.2f},{:.2f}],[{:.2f},{:.2f}])\n".format(
             min(x_px),
             max(x_px),
             min(y_px),
@@ -182,7 +181,8 @@ def show_goniometer(goniometer):
     return s
 
 
-def run(args):
+@dials.util.show_mail_handle_errors()
+def run(args=None):
     import dials.util.log
 
     dials.util.log.print_banner()
@@ -217,12 +217,6 @@ def run(args):
             sys.exit("Error: experiment has no beam")
         print(show_experiments(experiments, show_scan_varying=params.show_scan_varying))
 
-        if params.show_image_statistics:
-            print(
-                "WARNING: show_image_statistics is deprecated. Please use image_statistics.show_raw or image_statistics.show_corrected instead"
-            )
-            params.image_statistics.show_raw = True
-
         if params.image_statistics.show_raw:
             show_image_statistics(experiments, "raw")
 
@@ -255,15 +249,15 @@ def show_experiments(experiments, show_scan_varying=False):
         text.append("Experiment %i:" % i_expt)
         format_class = expt.imageset.get_format_class()
         if format_class.__name__ != "Format":
-            text.append("Format class: %s" % format_class.__name__)
+            text.append(f"Format class: {format_class.__name__}")
         if expt.identifier != "":
-            text.append("Experiment identifier: %s" % expt.identifier)
+            text.append(f"Experiment identifier: {expt.identifier}")
         try:
             template = expt.imageset.get_template()
         except AttributeError:
             template = None
         if template:
-            text.append("Image template: %s" % template)
+            text.append(f"Image template: {template}")
         text.append(str(expt.detector))
         text.append(
             "Max resolution (at corners): %f"
@@ -299,7 +293,7 @@ def show_experiments(experiments, show_scan_varying=False):
                 a, b, c = abc.mean()
                 alpha, beta, gamma = angles.mean()
                 mean_unit_cell = uctbx.unit_cell((a, b, c, alpha, beta, gamma))
-                text.append("  Average unit cell: %s" % mean_unit_cell)
+                text.append(f"  Average unit cell: {mean_unit_cell}")
         if expt.profile is not None:
             text.append(str(expt.profile))
         if expt.scaling_model is not None:
@@ -315,7 +309,7 @@ def show_image_statistics(experiments, im_type):
     elif im_type == "corrected":
         raw = False
     else:
-        raise ValueError("Unknown im_type: {0}".format(im_type))
+        raise ValueError(f"Unknown im_type: {im_type}")
 
     # To show image statistics, check_format has to be true. So we have to reinstatiate
     # the experiment list here
@@ -323,14 +317,12 @@ def show_image_statistics(experiments, im_type):
         experiments = ExperimentListFactory.from_json(
             experiments.as_json(), check_format=True
         )
-    except IOError as e:
+    except OSError as e:
         raise Sorry(
-            "Unable to read image data. Please check {0} is accessible".format(
-                e.filename
-            )
+            f"Unable to read image data. Please check {e.filename} is accessible"
         )
 
-    print("Five number summary of the {0} images".format(im_type))
+    print(f"Five number summary of the {im_type} images")
     for i_expt, expt in enumerate(experiments):
         for i in range(len(expt.imageset)):
             identifier = os.path.basename(expt.imageset.get_image_identifier(i))
@@ -345,7 +337,7 @@ def show_image_statistics(experiments, im_type):
                 flat_data.extend(p.as_1d())
             fns = five_number_summary(flat_data)
             print(
-                "{0}: Min: {1:.1f} Q1: {2:.1f} Med: {3:.1f} Q3: {4:.1f} Max: {5:.1f}".format(
+                "{}: Min: {:.1f} Q1: {:.1f} Med: {:.1f} Q3: {:.1f} Max: {:.1f}".format(
                     identifier, *fns
                 )
             )
@@ -354,8 +346,8 @@ def show_image_statistics(experiments, im_type):
 def model_connectivity(experiments):
     def model_connectivity_impl(experiments, model):
         text = [""]
-        text.append("%s:" % model.capitalize())
-        models = getattr(experiments, "%ss" % model)()
+        text.append(f"{model.capitalize()}:")
+        models = getattr(experiments, f"{model}s")()
         rows = [[""] + [str(j) for j in range(len(models))]]
         for j, e in enumerate(experiments):
             row = ["Experiment %d" % j]
@@ -390,7 +382,7 @@ def _create_flag_count_table(table):
     # Calculate the counts of entries that match each flag
     numpy_flags = table["flags"].as_numpy_array()
     flag_count = {
-        flag: numpy.sum(numpy_flags & value != 0)
+        flag: np.sum(numpy_flags & value != 0)
         for value, flag in table.flags.values.items()
     }
 
@@ -413,7 +405,7 @@ def _create_flag_count_table(table):
             [
                 indent + flag.name,
                 "{:{:d}d}".format(flag_count[flag], max_count_len),
-                "{:5.01f}".format(100 * flag_count[flag] / len(table)),
+                f"{100 * flag_count[flag] / len(table):5.01f}",
             ]
         )
 
@@ -502,7 +494,7 @@ def show_reflections(
 
         foreground_valid = MaskCode.Valid | MaskCode.Foreground
         text.append("")
-        text.append("Reflection list contains %i reflections" % (len(rlist)))
+        text.append(f"Reflection list contains {len(rlist)} reflections")
 
         if len(rlist) == 0:
             continue
@@ -658,7 +650,7 @@ def show_reflections(
         for i in range(len(c_strings[0])):
 
             column.append(
-                ("%%%is" % len(key))
+                f"%{len(key)}s"
                 % ", ".join(
                     ("%%%is" % max_element_lengths[j]) % c_strings[j][i]
                     for j in range(len(c_strings))
@@ -698,6 +690,4 @@ def show_reflections(
 
 
 if __name__ == "__main__":
-    import sys
-
-    run(sys.argv[1:])
+    run()

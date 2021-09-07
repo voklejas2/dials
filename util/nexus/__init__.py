@@ -1,8 +1,8 @@
-from __future__ import absolute_import, division, print_function
+from time import strftime
 
 import h5py
-from dials.util.nexus import nx_reflections, nx_mx
-from time import strftime
+
+from dials.util.nexus import nx_mx, nx_reflections
 
 
 def get_entry(filename, mode="a"):

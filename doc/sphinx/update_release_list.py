@@ -1,23 +1,13 @@
-from __future__ import absolute_import, division, print_function
-
 import json
 import os
 import re
 from datetime import datetime
-
-try:  # Python 3
-    from urllib.request import urlopen, Request
-except ImportError:  # Python 2
-    from urllib2 import urlopen, Request
+from urllib.request import Request, urlopen
 
 
 def _download_button(text, version, link):
-    print("  %s %s -> %s" % (version, text, link))
-    return ".. button::\n   :text: DIALS %s %s\n   :link: %s\n\n" % (
-        version,
-        text,
-        link,
-    )
+    print(f"  {version} {text} -> {link}")
+    return f".. button::\n   :text: DIALS {version} {text}\n   :link: {link}\n\n"
 
 
 if __name__ == "__main__":
@@ -26,9 +16,8 @@ if __name__ == "__main__":
     )
     print("Checking DIALS release status")
     url_request = Request("https://api.github.com/repos/dials/dials/releases/latest")
-    conn = urlopen(url_request)
-    release_info = json.load(conn)
-    conn.close()
+    with urlopen(url_request) as conn:
+        release_info = json.load(conn)
 
     with open(release_file, "w") as release:
         caption = "Stable Release"
@@ -40,10 +29,11 @@ if __name__ == "__main__":
         release.write(caption + "\n" + "=" * len(caption) + "\n\n")
 
         release.write(
-            "The current stable release can be downloaded from `Github <https://github.com/dials/dials/releases/latest>`_,\n"
-        )
-        release.write(
-            "where you can also find further `release notes <https://github.com/dials/dials/releases/latest>`_.\n\n"
+            """
+The current stable release can be downloaded from `Github <https://github.com/dials/dials/releases/latest>`_,
+where you can also find further `release notes <https://github.com/dials/dials/releases/latest>`_.
+
+""".lstrip()
         )
 
         assets = {}
@@ -63,13 +53,9 @@ if __name__ == "__main__":
                     )
 
         long_names = {
-            "macosx.pkg": "Mac installer (Python 2)",
-            "macosx-conda3.pkg": "Mac installer (Python 3)",
-            "macosx.tar.gz": "Mac tar archive (Python 2)",
-            "macosx-conda3.tar.gz": "Mac tar archive (Python 3)",
-            "linux-x86_64.tar.xz": "Linux installer (Python 2)",
-            "linux-x86_64-conda3.tar.xz": "Linux installer (Python 3)",
-            "source.tar.xz": "Source installer",
+            "macosx.pkg": "Mac installer",
+            "macosx.tar.gz": "Mac tar archive",
+            "linux-x86_64.tar.xz": "Linux installer",
         }
 
         buttons = [

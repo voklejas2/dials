@@ -1,11 +1,11 @@
-# LIBTBX_SET_DISPATCHER_NAME dev.dials.merge_reflection_lists
+# LIBTBX_SET_DISPATCHER_NAME dials.merge_reflection_lists
 
-from __future__ import absolute_import, division, print_function
 
 import sys
 
 from libtbx.phil import parse
-from dials.util import show_mail_on_error
+
+from dials.util import show_mail_handle_errors
 from dials.util.command_line import Command
 from dials.util.options import OptionParser
 
@@ -36,21 +36,21 @@ phil_scope = parse(
 )
 
 
-class Script(object):
+class Script:
     """A class to encapsulate the script."""
 
     def __init__(self):
         """Initialise the script."""
         # The script usage
-        usage = "usage: dev.dials.merge_reflection_lists [options] /path/to/image/reflection/files"
+        usage = "usage: dials.merge_reflection_lists [options] /path/to/image/reflection/files"
         self.parser = OptionParser(
             epilog=help_message, usage=usage, phil=phil_scope, read_reflections=True
         )
 
-    def run(self):
+    def run(self, args=None):
         """Run the script."""
         # Parse the command line arguments
-        params, options = self.parser.parse_args(show_diff_phil=True)
+        params, options = self.parser.parse_args(args, show_diff_phil=True)
         if len(params.input.reflections) == 0:
             self.parser.print_help()
             return
@@ -74,15 +74,19 @@ class Script(object):
             for t in tables[1:]:
                 table.extend(t)
         else:
-            raise RuntimeError("unknown method, %s" % params.method)
+            raise RuntimeError(f"unknown method, {params.method}")
 
         # Write the reflections to the file
-        Command.start("Writing %d reflections to %s" % (len(table), params.output))
+        Command.start(f"Writing {len(table)} reflections to {params.output}")
         table.as_file(params.output)
-        Command.end("Wrote %d reflections to %s" % (len(table), params.output))
+        Command.end(f"Wrote {len(table)} reflections to {params.output}")
+
+
+@show_mail_handle_errors()
+def run(args=None):
+    script = Script()
+    script.run(args)
 
 
 if __name__ == "__main__":
-    with show_mail_on_error():
-        script = Script()
-        script.run()
+    run()

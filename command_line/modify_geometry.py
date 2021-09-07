@@ -1,6 +1,6 @@
-from __future__ import absolute_import, division, print_function
-
 import libtbx.phil
+
+import dials.util
 
 help_message = """
 """
@@ -17,9 +17,9 @@ output {
 )
 
 
-def run(args):
-    from dials.util.options import OptionParser
-    from dials.util.options import flatten_experiments
+@dials.util.show_mail_handle_errors()
+def run(args=None):
+    from dials.util.options import OptionParser, flatten_experiments
 
     usage = "dials.modify_geometry [options] models.expt"
 
@@ -31,7 +31,7 @@ def run(args):
         epilog=help_message,
     )
 
-    params, options = parser.parse_args(show_diff_phil=True)
+    params, options = parser.parse_args(args, show_diff_phil=True)
     experiments = flatten_experiments(params.input.experiments)
 
     if len(experiments) == 0:
@@ -53,11 +53,9 @@ def run(args):
         imageset.set_scan(imageset_new.get_scan())
 
     if len(experiments):
-        print("Saving modified experiments to %s" % params.output.experiments)
+        print(f"Saving modified experiments to {params.output.experiments}")
         experiments.as_file(params.output.experiments)
 
 
 if __name__ == "__main__":
-    import sys
-
-    run(sys.argv[1:])
+    run()

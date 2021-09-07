@@ -1,12 +1,10 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
 
 from libtbx.phil import parse
-from dials.util import log, show_mail_on_error
-from dials.util.options import OptionParser, reflections_and_experiments_from_files
-from dials.algorithms.statistics.cc_half_algorithm import CCHalfFromDials, CCHalfFromMTZ
 
+from dials.algorithms.statistics.cc_half_algorithm import CCHalfFromDials, CCHalfFromMTZ
+from dials.util import log, show_mail_handle_errors
+from dials.util.options import OptionParser, reflections_and_experiments_from_files
 
 logger = logging.getLogger("dials.command_line.compute_delta_cchalf")
 
@@ -74,7 +72,7 @@ phil_scope = parse(
 
   stdcutoff = 4.0
     .type = float
-    .help = "Datasets with a delta cc half below (mean - stdcutoff*std) are removed"
+    .help = "Datasets with a ΔCC½ below (mean - stdcutoff*std) are removed"
 
   output {
     log = 'dials.compute_delta_cchalf.log'
@@ -85,6 +83,7 @@ phil_scope = parse(
 )
 
 
+@show_mail_handle_errors()
 def run(args=None, phil=phil_scope):
     """Run the command-line script."""
 
@@ -120,7 +119,7 @@ def run(args=None, phil=phil_scope):
         else:
             if not len(reflections) == 1:
                 exit("Only one reflection table can be provided")
-            n_datasets = len(set(reflections[0]["id"]).difference(set([-1])))
+            n_datasets = len(set(reflections[0]["id"]).difference({-1}))
             if n_datasets != len(experiments):
                 exit(
                     """
@@ -137,5 +136,4 @@ of datasets in the reflection table (%s)
 
 
 if __name__ == "__main__":
-    with show_mail_on_error():
-        run()
+    run()

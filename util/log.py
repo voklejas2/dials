@@ -1,10 +1,8 @@
-from __future__ import absolute_import, division, print_function
-
 import logging.config
 import os
-import six
 import sys
 import time
+from typing import List
 
 try:
     from colorlog import ColoredFormatter
@@ -16,19 +14,22 @@ class DialsLogfileFormatter:
     """A formatter for log files that prepends messages with the elapsed time
     or messages at warning level or above with 'WARNING:'"""
 
-    def __init__(self):
+    def __init__(self, timed):
+        self.timed = timed
         self.start_time = time.time()
         self.prefix = ""
 
     def format(self, record):
-        elapsed_seconds = record.created - self.start_time
-        prefix = "{:6.1f}: ".format(elapsed_seconds)
+        if self.timed:
+            elapsed_seconds = record.created - self.start_time
+            prefix = f"{elapsed_seconds:6.1f}: "
+        else:
+            prefix = ""
         indent = len(prefix)
         msg = record.getMessage()
 
         if record.levelno >= logging.WARNING:
-            prefix = "WARN: "
-            prefix = (indent - len(prefix)) * " " + prefix
+            prefix = "{prefix:>{indent}s}".format(indent=indent, prefix="WARN: ")
 
         msg = msg.replace("\n", "\n" + " " * indent)
         if prefix == self.prefix:
@@ -70,16 +71,21 @@ def config(verbosity=0, logfile=None):
     dials_logger = logging.getLogger("dials")
     dials_logger.addHandler(console)
 
-    if verbosity:
+    logging.captureWarnings(True)
+    warning_logger = logging.getLogger("py.warnings")
+    warning_logger.addHandler(console)
+
+    if verbosity > 1:
         loglevel = logging.DEBUG
     else:
         loglevel = logging.INFO
 
     if logfile:
-        fh = logging.FileHandler(filename=logfile, mode="w")
+        fh = logging.FileHandler(filename=logfile, mode="w", encoding="utf-8")
         fh.setLevel(loglevel)
-        fh.setFormatter(DialsLogfileFormatter())
+        fh.setFormatter(DialsLogfileFormatter(timed=verbosity))
         dials_logger.addHandler(fh)
+        warning_logger.addHandler(fh)
 
     dials_logger.setLevel(loglevel)
     #   logging.getLogger("dxtbx").setLevel(logging.DEBUG)
@@ -95,8 +101,8 @@ class CacheHandler(logging.Handler):
         """
         Initialise the handler
         """
-        super(CacheHandler, self).__init__()
-        self._messages = []
+        super().__init__()
+        self.records = []
 
     def emit(self, record):
         """
@@ -104,10 +110,7 @@ class CacheHandler(logging.Handler):
 
         :param record: The log record
         """
-        self._messages.append(record)
-
-    def messages(self):
-        return self._messages
+        self.records.append(record)
 
 
 def config_simple_cached():
@@ -130,6 +133,23 @@ def config_simple_cached():
     )
 
 
+def rehandle_cached_records(records: List[logging.LogRecord]) -> None:
+    """
+    Submit cached log records to the relevant loggers for handling.
+
+    Because the relevant logger's threshold log level may be higher than when the
+    original log message was created and cached, the record will only be re-handled
+    if its level meets the new threshold.
+
+    Args:
+        records:  Cached log records.
+    """
+    for record in records:
+        record_logger = logging.getLogger(record.name)
+        if record_logger.isEnabledFor(record.levelno):
+            record_logger.handle(record)
+
+
 _banner = (
     "DIALS (2018) Acta Cryst. D74, 85-97. https://doi.org/10.1107/S2059798317017235"
 )
@@ -150,14 +170,10 @@ def print_banner(force=False, use_logging=False):
         print(_banner)
 
 
-class LoggingContext(object):
+class LoggingContext:
     # https://docs.python.org/3/howto/logging-cookbook.html#using-a-context-manager-for-selective-logging
     def __init__(self, logger, level=None):
-        self.logger = (
-            logging.getLogger(logger)
-            if isinstance(logger, six.string_types)
-            else logger
-        )
+        self.logger = logging.getLogger(logger) if isinstance(logger, str) else logger
         self.level = level
 
     def __enter__(self):

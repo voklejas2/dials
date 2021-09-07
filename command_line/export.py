@@ -1,10 +1,11 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
 import sys
+from io import StringIO
 
 from iotbx.phil import parse
 from libtbx import Auto
+
+from dials.util import log, show_mail_handle_errors
 
 logger = logging.getLogger("dials.command_line.export")
 
@@ -19,7 +20,7 @@ MTZ format exports the files as an unmerged mtz file, ready for input to
 downstream programs such as Pointless and Aimless. For exporting integrated,
 but unscaled data, the required input is a models.expt file and an
 integrated.refl file. For exporting scaled data, the required input is a
-models.expt file and a scaled.pickle file, also passing the option
+models.expt file and a scaled.refl file, also passing the option
 intensity=scale.
 
 NXS format exports the files as an NXmx file. The required input is a
@@ -41,14 +42,14 @@ mosflm.in file containing basic instructions for input to mosflm. The required
 input is an models.expt file.
 
 XDS format exports a models.expt file as XDS.INP and XPARM.XDS files. If a
-reflection pickle is given it will be exported as a SPOT.XDS file.
+reflection file is given it will be exported as a SPOT.XDS file.
 
 Examples::
 
   # Export to mtz
   dials.export models.expt integrated.refl
   dials.export models.expt integrated.refl mtz.hklout=integrated.mtz
-  dials.export models.expt scaled.pickle intensity=scale mtz.hklout=scaled.mtz
+  dials.export models.expt scaled.refl intensity=scale mtz.hklout=scaled.mtz
 
   # Export to nexus
   dials.export models.expt integrated.refl format=nxs
@@ -62,10 +63,10 @@ Examples::
   dials.export models.expt integrated.refl format=mosflm
 
   # Export to xds
-  dials.export strong.pickle format=xds
-  dials.export indexed.pickle format=xds
+  dials.export strong.refl format=xds
+  dials.export indexed.refl format=xds
   dials.export models.expt format=xds
-  dials.export models.expt indexed.pickle format=xds
+  dials.export models.expt indexed.refl format=xds
 """
 
 phil_scope = parse(
@@ -94,7 +95,7 @@ phil_scope = parse(
         reflection, with an updated partiality given by the sum of the
         individual partialities."
 
-    partiality_threshold=0.99
+    partiality_threshold=0.4
       .type = float
       .help = "All reflections with partiality values above the partiality
         threshold will be retained. This is done after any combination of
@@ -124,6 +125,10 @@ phil_scope = parse(
     crystal_name = XTAL
       .type = str
       .help = "The name of the crystal, for the mtz file metadata"
+
+    project_name = DIALS
+      .type = str
+      .help = "The project name for the mtz file metadata"
 
     best_unit_cell = None
     .type = unit_cell
@@ -186,6 +191,16 @@ phil_scope = parse(
       .help = "The output CIF file, defaults to integrated.cif or scaled_unmerged.cif
         depending on if the data are scaled."
 
+    compress = gz bz2 xz
+      .type = choice
+      .help = "Choose compression format (also appended to the file name)"
+
+    pdb_version = v5 *v5_next
+      .type = choice
+      .help = "This controls which pdb mmcif dictionary version the output"
+              "mmcif file should comply with. v5_next adds support for"
+              "recording unmerged data as well as additional scan metadata"
+              "and statistics, however writing can be slow for large datasets."
   }
 
   mosflm {
@@ -261,14 +276,42 @@ def export_mtz(params, experiments, reflections):
     # Handle case where user has passed data before integration
     if (
         "intensity.sum.value" not in reflections[0]
-        or "intensity.prf.value" not in reflections[0]
+        and "intensity.prf.value" not in reflections[0]
     ):
         raise ValueError(
             "Error: No intensity data in reflections; cannot export un-integrated data to MTZ"
         )
 
-    m = export_mtz(reflections[0], experiments, params)
-    from six.moves import cStringIO as StringIO
+    reflection_table = reflections[0]
+    filename = params.mtz.hklout
+    # if mtz filename is auto, then choose scaled.mtz or integrated.mtz
+    if filename in (None, Auto, "auto"):
+        if ("intensity.scale.value" in reflection_table) and (
+            "intensity.scale.variance" in reflection_table
+        ):
+            filename = "scaled.mtz"
+            logger.info("Data appears to be scaled, setting mtz.hklout = 'scaled.mtz'")
+        else:
+            filename = "integrated.mtz"
+            logger.info(
+                "Data appears to be unscaled, setting mtz.hklout = 'integrated.mtz'"
+            )
+
+    m = export_mtz(
+        reflection_table,
+        experiments,
+        intensity_choice=params.intensity,
+        filename=filename,
+        best_unit_cell=params.mtz.best_unit_cell,
+        partiality_threshold=params.mtz.partiality_threshold,
+        combine_partials=params.mtz.combine_partials,
+        min_isigi=params.mtz.min_isigi,
+        filter_ice_rings=params.mtz.filter_ice_rings,
+        d_min=params.mtz.d_min,
+        force_static_model=params.mtz.force_static_model,
+        crystal_name=params.mtz.crystal_name,
+        project_name=params.mtz.project_name,
+    )
 
     summary = StringIO()
     m.show_summary(out=summary)
@@ -395,8 +438,9 @@ def export_json(params, experiments, reflections):
     if not reflections:
         raise ValueError("json exporter requires a reflection table")
 
-    from dials.util import export_json
     from scitbx.array_family import flex
+
+    from dials.util import export_json
 
     imagesets = [expt.imageset for expt in experiments]
 
@@ -422,12 +466,12 @@ def export_json(params, experiments, reflections):
     )
 
 
-if __name__ == "__main__":
+@show_mail_handle_errors()
+def run(args=None):
     from dials.util.options import OptionParser, reflections_and_experiments_from_files
     from dials.util.version import dials_version
-    from dials.util import log
 
-    usage = "dials.export models.expt reflections.pickle [options]"
+    usage = "dials.export models.expt reflections.refl [options]"
 
     # Create the option parser
     parser = OptionParser(
@@ -440,7 +484,7 @@ if __name__ == "__main__":
     )
 
     # Get the parameters
-    params, options = parser.parse_args(show_diff_phil=False)
+    params, options = parser.parse_args(args, show_diff_phil=False)
 
     # Configure the logging
     log.config(logfile=params.output.log)
@@ -463,7 +507,7 @@ if __name__ == "__main__":
         params.input.reflections, params.input.experiments
     )
 
-    # do auto intepreting of intensity choice:
+    # do auto interpreting of intensity choice:
     # note that this may still fail certain checks further down the processing,
     # but these are the defaults to try
     if params.intensity in ([None], [Auto], ["auto"]) and reflections:
@@ -473,8 +517,15 @@ if __name__ == "__main__":
             params.intensity = ["scale"]
             logger.info("Data appears to be scaled, setting intensity = scale")
         else:
-            params.intensity = ["profile", "sum"]
-            logger.info("Data appears to be unscaled, setting intensity = profile+sum")
+            params.intensity = []
+            if "intensity.sum.value" in reflections[0]:
+                params.intensity.append("sum")
+            if "intensity.prf.value" in reflections[0]:
+                params.intensity.append("profile")
+            logger.info(
+                "Data appears to be unscaled, setting intensity = "
+                + "+".join(params.intensity)
+            )
 
     # Choose the exporter
     exporter = {
@@ -488,10 +539,14 @@ if __name__ == "__main__":
         "json": export_json,
     }.get(params.format)
     if not exporter:
-        sys.exit("Unknown format: %s" % params.format)
+        sys.exit(f"Unknown format: {params.format}")
 
     # Export the data
     try:
         exporter(params, experiments, reflections)
     except Exception as e:
         sys.exit(e)
+
+
+if __name__ == "__main__":
+    run()

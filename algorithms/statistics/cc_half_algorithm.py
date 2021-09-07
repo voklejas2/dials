@@ -1,28 +1,29 @@
-"""Delta CC half algorithm definitions"""
+"""ΔCC½ algorithm definitions"""
 
-from __future__ import absolute_import, division, print_function
 
 import logging
 from collections import defaultdict
 from math import sqrt
-from iotbx import mtz
-from cctbx import uctbx
 
-from dials.array_family import flex
-from dials.util.exclude_images import exclude_image_ranges_for_scaling
-from dials.util.multi_dataset_handling import select_datasets_on_identifiers
-from dials.util.filter_reflections import filter_reflection_table
-from dials.algorithms.statistics.delta_cchalf import PerGroupCChalfStatistics
+from jinja2 import ChoiceLoader, Environment, PackageLoader
+
+from cctbx import uctbx
+from iotbx import mtz
+
 from dials.algorithms.scaling.scale_and_filter import (
     make_histogram_plots,
     make_per_dataset_plot,
 )
-from jinja2 import Environment, ChoiceLoader, PackageLoader
+from dials.algorithms.statistics.delta_cchalf import PerGroupCChalfStatistics
+from dials.array_family import flex
+from dials.util.exclude_images import exclude_image_ranges_for_scaling
+from dials.util.filter_reflections import filter_reflection_table
+from dials.util.multi_dataset_handling import select_datasets_on_identifiers
 
 logger = logging.getLogger("dials.command_line.compute_delta_cchalf")
 
 
-class CCHalfFromMTZ(object):
+class CCHalfFromMTZ:
 
     """
     Run a cc-half algorithm using an MTZ file.
@@ -149,7 +150,7 @@ Batch offset can be specified with mtz.batch_offset=
         return table, unit_cell, space_group
 
 
-class CCHalfFromDials(object):
+class CCHalfFromDials:
 
     """
     Run a cc-half algorithm using dials datafiles.
@@ -215,7 +216,7 @@ class CCHalfFromDials(object):
         self.algorithm = DeltaCCHalf(table, unit_cell, space_group, params)
 
     def run(self):
-        """Run the delta cc half algorithm and then exclude data as appropriate"""
+        """Run the ΔCC½ algorithm and then exclude data as appropriate"""
         self.algorithm.run()
 
         # now do the exclusion
@@ -269,9 +270,9 @@ class CCHalfFromDials(object):
         Returns:
           output_reflections: The reflection table with data removed.
         """
-        n_valid_reflections = reflections.get_flags(
-            reflections.flags.bad_for_scaling, all=False
-        ).count(False)
+        n_valid_reflections = reflections.get_flags(reflections.flags.scaled).count(
+            True
+        )
 
         datasets_to_remove = []
         ids_removed = []
@@ -286,8 +287,8 @@ class CCHalfFromDials(object):
         output_reflections.assert_experiment_identifiers_are_consistent(experiments)
 
         n_valid_filtered_reflections = output_reflections.get_flags(
-            output_reflections.flags.bad_for_scaling, all=False
-        ).count(False)
+            output_reflections.flags.scaled
+        ).count(True)
         results_summary["dataset_removal"].update(
             {
                 "experiments_fully_removed": datasets_to_remove,
@@ -308,9 +309,9 @@ class CCHalfFromDials(object):
         results_summary,
     ):
         """Remove image ranges from the datasets."""
-        n_valid_reflections = reflections.get_flags(
-            reflections.flags.bad_for_scaling, all=False
-        ).count(False)
+        n_valid_reflections = reflections.get_flags(reflections.flags.scaled).count(
+            True
+        )
         expid_to_tableid = {
             v: k
             for k, v in zip(
@@ -341,7 +342,7 @@ class CCHalfFromDials(object):
                         table_id,
                     )
                     exclude_images.append(
-                        ["%s:%s:%s" % (table_id, image_range[0], image_range[1])]
+                        [f"{table_id}:{image_range[0]}:{image_range[1]}"]
                     )
                     if expid_to_image_groups[exp_id][-1] == id_:
                         del expid_to_image_groups[exp_id][-1]
@@ -382,9 +383,7 @@ class CCHalfFromDials(object):
             for imgrange in exp.scan.get_valid_image_ranges(exp.identifier):
                 if all([j not in tested for j in range(imgrange[0], imgrange[1] + 1)]):
                     table_id = expid_to_tableid[exp.identifier]
-                    exclude_images.append(
-                        ["%s:%s:%s" % (table_id, imgrange[0], imgrange[1])]
-                    )
+                    exclude_images.append([f"{table_id}:{imgrange[0]}:{imgrange[1]}"])
                     logger.info(
                         "Removing %s due to scaling outlier group.", exclude_images[-1]
                     )
@@ -412,8 +411,8 @@ class CCHalfFromDials(object):
             output_reflections.extend(r)
 
         n_valid_filtered_reflections = output_reflections.get_flags(
-            output_reflections.flags.bad_for_scaling, all=False
-        ).count(False)
+            output_reflections.flags.scaled
+        ).count(True)
         results_summary["dataset_removal"].update(
             {
                 "image_ranges_removed": image_ranges_removed,
@@ -463,10 +462,10 @@ class CCHalfFromDials(object):
         return filtered_table, mean_unit_cell, space_group
 
 
-class DeltaCCHalf(object):
+class DeltaCCHalf:
 
     """
-    Implementation of a delta cc-half algorithm.
+    Implementation of a ΔCC½ algorithm.
     """
 
     def __init__(self, reflection_table, median_unit_cell, space_group, params):
@@ -498,7 +497,7 @@ class DeltaCCHalf(object):
 
         self.delta_cchalf_i = statistics.delta_cchalf_i()
         self.results_summary["mean_cc_half"] = statistics._cchalf_mean
-        # Print out the datasets in order of delta cc 1/2
+        # Print out the datasets in order of ΔCC½
         self.sort_deltacchalf_values(self.delta_cchalf_i, self.results_summary)
 
         cutoff_value = self._calculate_cutoff_value(
@@ -537,7 +536,7 @@ class DeltaCCHalf(object):
         sorted_datasets = flex.int([])
         for i in sorted_index:
             val = delta_cchalf_i[datasets[i]]
-            logger.info("Dataset: %d, Delta CC 1/2: %.3f", datasets[i], 100 * val)
+            logger.info("Dataset: %d, ΔCC½: %.3f", datasets[i], 100 * val)
             sorted_cc_half_values.append(val)
             sorted_datasets.append(datasets[i])
 
@@ -553,10 +552,10 @@ class DeltaCCHalf(object):
         Y = list(delta_cchalf_i.values())
         mean = sum(Y) / len(Y)
         sdev = sqrt(sum((yy - mean) ** 2 for yy in Y) / len(Y))
-        logger.info("\nmean delta_cc_half %s", (mean * 100))
-        logger.info("stddev delta_cc_half %s", (sdev * 100))
+        logger.info(f"\nmean delta_cc_half: {(mean * 100):.3f}")
+        logger.info(f"stddev delta_cc_half: {(sdev * 100):.3f}")
         cutoff_value = mean - stdcutoff * sdev
-        logger.info("cutoff value: %s \n", (cutoff_value * 100))
+        logger.info(f"cutoff value: {(cutoff_value * 100):.3f} \n")
         return cutoff_value
 
     def output_html_report(self):
@@ -588,9 +587,12 @@ class DeltaCCHalf(object):
                 ]
             )
             env = Environment(loader=loader)
-            template = env.get_template("delta_cc_half_report.html")
+            template = env.get_template("simple_report.html")
             html = template.render(
-                page_title="Delta CC Half report", cc_half_plots=data["cc_half_plots"]
+                page_title="ΔCC½ report",
+                panel_title="Delta CC-Half plots",
+                panel_id="cc_half_plots",
+                graphs=data["cc_half_plots"],
             )
             with open(self.params.output.html, "wb") as f:
                 f.write(html.encode("utf-8", "xmlcharrefreplace"))

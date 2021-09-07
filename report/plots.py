@@ -1,19 +1,22 @@
-# coding: utf-8
 """
 This module defines a number of general plots, which may be relevant to
 for reports of several programs.
 """
-from __future__ import absolute_import, division, print_function
 
+import logging
 from collections import OrderedDict
+from io import StringIO
 
 import numpy as np
+from scipy.optimize import least_squares
+
 from cctbx import uctbx
+from mmtbx.scaling.absolute_scaling import expected_intensity, scattering_information
+from mmtbx.scaling.matthews import matthews_rupp
 from scitbx.array_family import flex
 from scitbx.math import distributions
-from mmtbx.scaling.absolute_scaling import scattering_information, expected_intensity
-from mmtbx.scaling.matthews import matthews_rupp
-from scipy.optimize import least_squares
+
+logger = logging.getLogger("dials")
 
 
 def make_image_range_table(experiments, batch_manager):
@@ -120,9 +123,9 @@ def i_over_sig_i_vs_batch_plot(batch_manager, i_sig_i_vs_batch):
                 }
             ],
             "layout": {
-                "title": u"<I/σ(I)> vs batch",
+                "title": "<I/σ(I)> vs batch",
                 "xaxis": {"title": "N"},
-                "yaxis": {"title": u"<I/σ(I)>", "rangemode": "tozero"},
+                "yaxis": {"title": "<I/σ(I)>", "rangemode": "tozero"},
                 "shapes": shapes,
                 "annotations": annotations,
             },
@@ -130,7 +133,7 @@ def i_over_sig_i_vs_batch_plot(batch_manager, i_sig_i_vs_batch):
     }
 
 
-def i_over_sig_i_vs_i_plot(intensities, sigmas):
+def i_over_sig_i_vs_i_plot(intensities, sigmas, label=None):
     """Plot unscaled I / sigma_adjusted vs unscaled I."""
     sel = (intensities > 0) & (sigmas > 0)
     intensities = intensities.select(sel)
@@ -145,9 +148,11 @@ def i_over_sig_i_vs_i_plot(intensities, sigmas):
     z = np.empty(H.shape)
     z[:] = np.NAN
     z[nonzeros] = H[nonzeros]
-
+    key = f"i_over_sig_i_vs_i_{label}" if label is not None else "i_over_sig_i_vs_i"
+    title = "I/σ(I) vs I"
+    title = title + f" (error model {label})" if label is not None else title
     return {
-        "i_over_sig_i_vs_i": {
+        key: {
             "data": [
                 {
                     "x": xedges.tolist(),
@@ -163,11 +168,11 @@ def i_over_sig_i_vs_i_plot(intensities, sigmas):
                 }
             ],
             "layout": {
-                "title": u"I/σ(I) vs I",
+                "title": title,
                 "xaxis": {"title": "log I"},
-                "yaxis": {"title": u"I/σ(I)"},
+                "yaxis": {"title": "I/σ(I)"},
             },
-            "help": u"""\
+            "help": """\
 This plot shows the distribution of I/σ(I) as a function of I, which can
 give indication of the errors within the dataset. The I/σ(I) asymptotic
 limit can be seen at the plateau in the top-right of the plot, if the measured
@@ -180,19 +185,15 @@ https://doi.org/10.1107/S0907444910014836
     }
 
 
-class ResolutionPlotterMixin(object):
-    """Define additional helper methods for plotting"""
-
-    @staticmethod
-    def _d_star_sq_to_d_ticks(d_star_sq, nticks):
-        min_d_star_sq = min(d_star_sq)
-        dstep = (max(d_star_sq) - min_d_star_sq) / nticks
-        tickvals = list(min_d_star_sq + (i * dstep) for i in range(nticks))
-        ticktext = ["%.2f" % (uctbx.d_star_sq_as_d(dsq)) for dsq in tickvals]
-        return tickvals, ticktext
+def d_star_sq_to_d_ticks(d_star_sq, nticks):
+    min_d_star_sq = min(d_star_sq)
+    dstep = (max(d_star_sq) - min_d_star_sq) / nticks
+    tickvals = [min_d_star_sq + (i * dstep) for i in range(nticks)]
+    ticktext = [f"{uctbx.d_star_sq_as_d(dsq):.2f}" for dsq in tickvals]
+    return tickvals, ticktext
 
 
-class IntensityStatisticsPlots(ResolutionPlotterMixin):
+class IntensityStatisticsPlots:
     """Generate plots for intensity-derived statistics."""
 
     def __init__(
@@ -214,22 +215,25 @@ class IntensityStatisticsPlots(ResolutionPlotterMixin):
         self.multiplicities = merged.redundancies().complete_array(new_data_value=0)
         intensities.setup_binner_d_star_sq_step(auto_binning=True)
         self.wilson_plot_result = intensities.wilson_plot(use_binning=True)
-        mr = matthews_rupp(intensities.crystal_symmetry())
+        mr = matthews_rupp(intensities.crystal_symmetry(), out=StringIO())
         self.n_residues = mr.n_residues
         if not self._xanalysis and run_xtriage_analysis:
             # imports needed here or won't work, unsure why.
-            from mmtbx.scaling.xtriage import xtriage_analyses
             from mmtbx.scaling.xtriage import master_params as xtriage_master_params
+            from mmtbx.scaling.xtriage import xtriage_analyses
 
             xtriage_params = xtriage_master_params.fetch(sources=[]).extract()
             xtriage_params.scaling.input.xray_data.skip_sanity_checks = True
-            xanalysis = xtriage_analyses(
-                miller_obs=self.merged_intensities,
-                unmerged_obs=intensities,
-                text_out="silent",
-                params=xtriage_params,
-            )
-            self._xanalysis = xanalysis
+            try:
+                self._xanalysis = xtriage_analyses(
+                    miller_obs=self.merged_intensities,
+                    unmerged_obs=intensities,
+                    text_out="silent",
+                    params=xtriage_params,
+                )
+            except RuntimeError:
+                logger.warning("Xtriage analysis failed.", exc_info=True)
+                self._xanalysis = None
 
     def generate_resolution_dependent_plots(self):
         d = OrderedDict()
@@ -323,7 +327,7 @@ class IntensityStatisticsPlots(ResolutionPlotterMixin):
         best = least_squares(residuals, 1.0)
 
         mean_I_obs_theory = expected.mean_intensity * best.x
-        tickvals_wilson, ticktext_wilson = self._d_star_sq_to_d_ticks(dstarsq, nticks=5)
+        tickvals_wilson, ticktext_wilson = d_star_sq_to_d_ticks(dstarsq, nticks=5)
 
         return {
             "wilson_intensity_plot": {
@@ -346,7 +350,7 @@ class IntensityStatisticsPlots(ResolutionPlotterMixin):
                 "layout": {
                     "title": "Wilson intensity plot",
                     "xaxis": {
-                        "title": u"Resolution (Å)",
+                        "title": "Resolution (Å)",
                         "tickvals": tickvals_wilson,
                         "ticktext": ticktext_wilson,
                     },
@@ -472,7 +476,7 @@ class IntensityStatisticsPlots(ResolutionPlotterMixin):
             )
         if centric.size():
             second_moment_d_star_sq.extend(second_moments_centric.binner.bin_centers(2))
-        tickvals_2nd_moment, ticktext_2nd_moment = self._d_star_sq_to_d_ticks(
+        tickvals_2nd_moment, ticktext_2nd_moment = d_star_sq_to_d_ticks(
             second_moment_d_star_sq, nticks=5
         )
 
@@ -507,7 +511,7 @@ class IntensityStatisticsPlots(ResolutionPlotterMixin):
                 "layout": {
                     "title": "Second moment of I",
                     "xaxis": {
-                        "title": u"Resolution (Å)",
+                        "title": "Resolution (Å)",
                         "tickvals": tickvals_2nd_moment,
                         "ticktext": ticktext_2nd_moment,
                     },
@@ -517,7 +521,7 @@ class IntensityStatisticsPlots(ResolutionPlotterMixin):
         }
 
 
-class ResolutionPlotsAndStats(ResolutionPlotterMixin):
+class ResolutionPlotsAndStats:
     """
     Use iotbx dataset statistics objects to make plots and tables for reports.
 
@@ -533,9 +537,10 @@ class ResolutionPlotsAndStats(ResolutionPlotterMixin):
         self.dataset_statistics = dataset_statistics
         self.anomalous_dataset_statistics = anomalous_dataset_statistics
         self.d_star_sq_bins = [
-            (1 / bin_stats.d_min ** 2) for bin_stats in self.dataset_statistics.bins
+            0.5 * (uctbx.d_as_d_star_sq(b.d_max) + uctbx.d_as_d_star_sq(b.d_min))
+            for b in self.dataset_statistics.bins
         ]
-        self.d_star_sq_tickvals, self.d_star_sq_ticktext = self._d_star_sq_to_d_ticks(
+        self.d_star_sq_tickvals, self.d_star_sq_ticktext = d_star_sq_to_d_ticks(
             self.d_star_sq_bins, nticks=5
         )
         self.is_centric = is_centric
@@ -589,74 +594,17 @@ class ResolutionPlotsAndStats(ResolutionPlotterMixin):
         ]
 
         return {
-            "cc_one_half": {
-                "data": [
-                    {
-                        "x": self.d_star_sq_bins,  # d_star_sq
-                        "y": cc_one_half_bins,
-                        "type": "scatter",
-                        "name": u"CC<sub>½</sub>",
-                        "mode": "lines",
-                        "line": {"color": "rgb(31, 119, 180)"},
-                    },
-                    {
-                        "x": self.d_star_sq_bins,  # d_star_sq
-                        "y": cc_one_half_critical_value_bins,
-                        "type": "scatter",
-                        "name": u"CC<sub>½</sub> critical value (p=0.01)",
-                        "line": {"color": "rgb(31, 119, 180)", "dash": "dot"},
-                    },
-                    (
-                        {
-                            "x": self.d_star_sq_bins,  # d_star_sq
-                            "y": cc_anom_bins,
-                            "type": "scatter",
-                            "name": "CC-anom",
-                            "mode": "lines",
-                            "line": {"color": "rgb(255, 127, 14)"},
-                        }
-                        if not self.is_centric
-                        else {}
-                    ),
-                    (
-                        {
-                            "x": self.d_star_sq_bins,  # d_star_sq
-                            "y": cc_anom_critical_value_bins,
-                            "type": "scatter",
-                            "name": "CC-anom critical value (p=0.01)",
-                            "mode": "lines",
-                            "line": {"color": "rgb(255, 127, 14)", "dash": "dot"},
-                        }
-                        if not self.is_centric
-                        else {}
-                    ),
-                ],
-                "layout": {
-                    "title": u"CC<sub>½</sub> vs resolution",
-                    "xaxis": {
-                        "title": u"Resolution (Å)",
-                        "tickvals": self.d_star_sq_tickvals,
-                        "ticktext": self.d_star_sq_ticktext,
-                    },
-                    "yaxis": {
-                        "title": u"CC<sub>½</sub>",
-                        "range": [min(cc_one_half_bins + cc_anom_bins + [0]), 1],
-                    },
-                },
-                "help": u"""\
-    The correlation coefficients, CC<sub>½</sub>, between random half-datasets. A correlation
-    coefficient of +1 indicates good correlation, and 0 indicates no correlation.
-    CC<sub>½</sub> is typically close to 1 at low resolution, falling off to close to zero at
-    higher resolution. A typical resolution cutoff based on CC<sub>½</sub> is around 0.3-0.5.
-
-    [1] Karplus, P. A., & Diederichs, K. (2012). Science, 336(6084), 1030-1033.
-        https://doi.org/10.1126/science.1218231
-    [2] Diederichs, K., & Karplus, P. A. (2013). Acta Cryst D, 69(7), 1215-1222.
-        https://doi.org/10.1107/S0907444913001121
-    [3] Evans, P. R., & Murshudov, G. N. (2013). Acta Cryst D, 69(7), 1204-1214.
-        https://doi.org/10.1107/S0907444913000061
-    """,
-            }
+            "cc_one_half": cc_half_plot(
+                d_star_sq=self.d_star_sq_bins,
+                cc_half=cc_one_half_bins,
+                cc_anom=cc_anom_bins if not self.is_centric else None,
+                cc_half_critical_values=cc_one_half_critical_value_bins,
+                cc_anom_critical_values=cc_anom_critical_value_bins
+                if not self.is_centric
+                else None,
+                cc_half_fit=None,
+                d_min=None,
+            )
         }
 
     def i_over_sig_i_plot(self):
@@ -676,13 +624,13 @@ class ResolutionPlotsAndStats(ResolutionPlotterMixin):
                     }
                 ],
                 "layout": {
-                    "title": u"<I/σ(I)> vs resolution",
+                    "title": "<I/σ(I)> vs resolution",
                     "xaxis": {
-                        "title": u"Resolution (Å)",
+                        "title": "Resolution (Å)",
                         "tickvals": self.d_star_sq_tickvals,
                         "ticktext": self.d_star_sq_ticktext,
                     },
-                    "yaxis": {"title": u"<I/σ(I)>", "rangemode": "tozero"},
+                    "yaxis": {"title": "<I/σ(I)>", "rangemode": "tozero"},
                 },
             }
         }
@@ -702,13 +650,13 @@ class ResolutionPlotsAndStats(ResolutionPlotterMixin):
                     }
                 ],
                 "layout": {
-                    "title": u"R<sub>pim</sub> vs resolution",
+                    "title": "R<sub>pim</sub> vs resolution",
                     "xaxis": {
-                        "title": u"Resolution (Å)",
+                        "title": "Resolution (Å)",
                         "tickvals": self.d_star_sq_tickvals,
                         "ticktext": self.d_star_sq_ticktext,
                     },
-                    "yaxis": {"title": u"R<sub>pim</sub>", "rangemode": "tozero"},
+                    "yaxis": {"title": "R<sub>pim</sub>", "rangemode": "tozero"},
                 },
             }
         }
@@ -718,10 +666,11 @@ class ResolutionPlotsAndStats(ResolutionPlotterMixin):
         completeness_bins = [
             bin_stats.completeness for bin_stats in self.dataset_statistics.bins
         ]
-        anom_completeness_bins = [
-            bin_stats.anom_completeness
-            for bin_stats in self.anomalous_dataset_statistics.bins
-        ]
+        if self.anomalous_dataset_statistics:
+            anom_completeness_bins = [
+                bin_stats.anom_completeness
+                for bin_stats in self.anomalous_dataset_statistics.bins
+            ]
 
         return {
             "completeness": {
@@ -739,14 +688,14 @@ class ResolutionPlotsAndStats(ResolutionPlotterMixin):
                             "type": "scatter",
                             "name": "Anomalous completeness",
                         }
-                        if not self.is_centric
+                        if not self.is_centric and self.anomalous_dataset_statistics
                         else {}
                     ),
                 ],
                 "layout": {
                     "title": "Completeness vs resolution",
                     "xaxis": {
-                        "title": u"Resolution (Å)",
+                        "title": "Resolution (Å)",
                         "tickvals": self.d_star_sq_tickvals,
                         "ticktext": self.d_star_sq_ticktext,
                     },
@@ -760,10 +709,11 @@ class ResolutionPlotsAndStats(ResolutionPlotterMixin):
         multiplicity_bins = [
             bin_stats.mean_redundancy for bin_stats in self.dataset_statistics.bins
         ]
-        anom_multiplicity_bins = [
-            bin_stats.mean_redundancy
-            for bin_stats in self.anomalous_dataset_statistics.bins
-        ]
+        if self.anomalous_dataset_statistics:
+            anom_multiplicity_bins = [
+                bin_stats.mean_redundancy
+                for bin_stats in self.anomalous_dataset_statistics.bins
+            ]
 
         return {
             "multiplicity_vs_resolution": {
@@ -781,14 +731,14 @@ class ResolutionPlotsAndStats(ResolutionPlotterMixin):
                             "type": "scatter",
                             "name": "Anomalous multiplicity",
                         }
-                        if not self.is_centric
+                        if not self.is_centric and self.anomalous_dataset_statistics
                         else {}
                     ),
                 ],
                 "layout": {
                     "title": "Multiplicity vs resolution",
                     "xaxis": {
-                        "title": u"Resolution (Å)",
+                        "title": "Resolution (Å)",
                         "tickvals": self.d_star_sq_tickvals,
                         "ticktext": self.d_star_sq_ticktext,
                     },
@@ -800,17 +750,18 @@ class ResolutionPlotsAndStats(ResolutionPlotterMixin):
     def merging_statistics_table(self, cc_half_method=None):
 
         headers = [
-            u"Resolution (Å)",
+            "Resolution (Å)",
             "N(obs)",
             "N(unique)",
             "Multiplicity",
             "Completeness",
             "Mean I",
-            u"Mean I/σ(I)",
+            "Mean I/σ(I)",
             "R<sub>merge</sub>",
             "R<sub>meas</sub>",
             "R<sub>pim</sub>",
-            u"CC<sub>½</sub>",
+            "R<sub>anom</sub>",
+            "CC<sub>½</sub>",
         ]
         if not self.is_centric:
             headers.append("CC<sub>ano</sub>")
@@ -821,16 +772,17 @@ class ResolutionPlotsAndStats(ResolutionPlotterMixin):
 
         for bin_stats in self.dataset_statistics.bins:
             row = [
-                "%.2f - %.2f" % (bin_stats.d_max, bin_stats.d_min),
+                f"{bin_stats.d_max:.2f} - {bin_stats.d_min:.2f}",
                 bin_stats.n_obs,
                 bin_stats.n_uniq,
-                "%.2f" % bin_stats.mean_redundancy,
-                "%.2f" % (100 * bin_stats.completeness),
-                "%.1f" % bin_stats.i_mean,
-                "%.1f" % bin_stats.i_over_sigma_mean,
+                f"{bin_stats.mean_redundancy:.2f}",
+                f"{100 * bin_stats.completeness:.2f}",
+                f"{bin_stats.i_mean:.1f}",
+                f"{bin_stats.i_over_sigma_mean:.1f}",
                 safe_format("%.3f", bin_stats.r_merge),
                 safe_format("%.3f", bin_stats.r_meas),
                 safe_format("%.3f", bin_stats.r_pim),
+                safe_format("%.3f", bin_stats.r_anom),
             ]
             if cc_half_method == "sigma_tau":
                 row.append(
@@ -872,25 +824,25 @@ class ResolutionPlotsAndStats(ResolutionPlotterMixin):
         )
 
         rows = [
-            [u"Resolution (Å)"] + ["%.2f - %.2f" % (s.d_max, s.d_min) for s in stats],
+            ["Resolution (Å)"] + [f"{s.d_max:.2f} - {s.d_min:.2f}" for s in stats],
             ["Observations"] + ["%i" % s.n_obs for s in stats],
             ["Unique reflections"] + ["%i" % s.n_uniq for s in stats],
-            ["Multiplicity"] + ["%.1f" % s.mean_redundancy for s in stats],
-            ["Completeness"] + ["%.2f%%" % (s.completeness * 100) for s in stats],
+            ["Multiplicity"] + [f"{s.mean_redundancy:.1f}" for s in stats],
+            ["Completeness"] + [f"{s.completeness * 100:.2f}%" for s in stats],
             # ['Mean intensity'] + ['%.1f' %s.i_mean for s in stats],
-            [u"Mean I/σ(I)"] + ["%.1f" % s.i_over_sigma_mean for s in stats],
-            ["R<sub>merge</sub>"] + ["%.3f" % s.r_merge for s in stats],
-            ["R<sub>meas</sub>"] + ["%.3f" % s.r_meas for s in stats],
-            ["R<sub>pim</sub>"] + ["%.3f" % s.r_pim for s in stats],
+            ["Mean I/σ(I)"] + [f"{s.i_over_sigma_mean:.1f}" for s in stats],
+            ["R<sub>merge</sub>"] + [f"{s.r_merge:.3f}" for s in stats],
+            ["R<sub>meas</sub>"] + [f"{s.r_meas:.3f}" for s in stats],
+            ["R<sub>pim</sub>"] + [f"{s.r_pim:.3f}" for s in stats],
         ]
 
         if cc_half_method == "sigma_tau":
             rows.append(
-                [u"CC<sub>½</sub>"] + ["%.3f" % s.cc_one_half_sigma_tau for s in stats]
+                ["CC<sub>½</sub>"] + [f"{s.cc_one_half_sigma_tau:.3f}" for s in stats]
             )
         else:
-            rows.append([u"CC<sub>½</sub>"] + ["%.3f" % s.cc_one_half for s in stats])
-        rows = [[u"<strong>%s</strong>" % r[0]] + r[1:] for r in rows]
+            rows.append(["CC<sub>½</sub>"] + [f"{s.cc_one_half:.3f}" for s in stats])
+        rows = [[f"<strong>{r[0]}</strong>"] + r[1:] for r in rows]
 
         overall_stats_table = [headers]
         overall_stats_table.extend(rows)
@@ -902,7 +854,7 @@ class ResolutionPlotsAndStats(ResolutionPlotterMixin):
         return (self.overall_statistics_table(), self.merging_statistics_table())
 
 
-class AnomalousPlotter(ResolutionPlotterMixin):
+class AnomalousPlotter:
     def __init__(self, anomalous_array, strong_cutoff=0.0, n_bins=20):
         self.intensities_anom = anomalous_array.map_to_asu()
         self.merged = self.intensities_anom.merge_equivalents(
@@ -970,7 +922,7 @@ class AnomalousPlotter(ResolutionPlotterMixin):
                 correl_ratios_acentric = []
             else:
                 d_star_sq_acentric = acentric.binner().bin_centers(2)
-                actickvals, acticktext = self._d_star_sq_to_d_ticks(
+                actickvals, acticktext = d_star_sq_to_d_ticks(
                     d_star_sq_acentric, nticks=5
                 )
         if centric.size() > 0:
@@ -979,7 +931,7 @@ class AnomalousPlotter(ResolutionPlotterMixin):
                 correl_ratios_centric = []
             else:
                 d_star_sq_centric = centric.binner().bin_centers(2)
-                ctickvals, cticktext = self._d_star_sq_to_d_ticks(
+                ctickvals, cticktext = d_star_sq_to_d_ticks(
                     d_star_sq_acentric, nticks=5
                 )
 
@@ -1018,7 +970,7 @@ class AnomalousPlotter(ResolutionPlotterMixin):
                 "layout": {
                     "title": "Anomalous R.M.S. correlation ratio (acentric reflections)",
                     "xaxis": {
-                        "title": u"Resolution (Å)",
+                        "title": "Resolution (Å)",
                         "tickvals": tickvals,
                         "ticktext": ticktext,
                     },
@@ -1056,7 +1008,7 @@ https://doi.org/10.1107/S0907444905036693
         title = "Correlation of half-set differences"
         plotname = "anom_scatter_plot"
         if strong_cutoff > 0.0:
-            title += " (d > %.2f)" % strong_cutoff
+            title += f" (d > {strong_cutoff:.2f})"
             plotname += "_lowres"
         else:
             title += " (all data)"
@@ -1140,7 +1092,7 @@ https://doi.org/10.1107/S0907444905036693
         title = "Normal probability plot of anomalous differences"
         plotname = "normal_distribution_plot"
         if strong_cutoff > 0.0:
-            title += " (d > %.2f)" % strong_cutoff
+            title += f" (d > {strong_cutoff:.2f})"
             plotname += "_lowres"
         else:
             title += " (all data)"
@@ -1194,3 +1146,110 @@ https://doi.org/10.1107/S0907444905036693
     """,
             }
         }
+
+
+def cc_half_plot(
+    d_star_sq,
+    cc_half,
+    cc_anom=None,
+    cc_half_critical_values=None,
+    cc_anom_critical_values=None,
+    cc_half_fit=None,
+    d_min=None,
+):
+    d_star_sq_tickvals, d_star_sq_ticktext = d_star_sq_to_d_ticks(d_star_sq, nticks=5)
+    return {
+        "data": [
+            {
+                "x": list(d_star_sq),
+                "y": list(cc_half),
+                "type": "scatter",
+                "name": "CC<sub>½</sub>",
+                "mode": "lines",
+                "line": {"color": "rgb(31, 119, 180)"},
+            },
+            (
+                {
+                    "x": list(d_star_sq),
+                    "y": list(cc_half_critical_values),
+                    "type": "scatter",
+                    "name": "CC<sub>½</sub> critical value (p=0.01)",
+                    "line": {"color": "rgb(31, 119, 180)", "dash": "dot"},
+                }
+                if cc_half_critical_values
+                else {}
+            ),
+            (
+                {
+                    "x": list(d_star_sq),
+                    "y": list(cc_anom),
+                    "type": "scatter",
+                    "name": "CC-anom",
+                    "mode": "lines",
+                    "line": {"color": "rgb(255, 127, 14)"},
+                }
+                if cc_anom
+                else {}
+            ),
+            (
+                {
+                    "x": list(d_star_sq),
+                    "y": list(cc_anom_critical_values),
+                    "type": "scatter",
+                    "name": "CC-anom critical value (p=0.01)",
+                    "mode": "lines",
+                    "line": {"color": "rgb(255, 127, 14)", "dash": "dot"},
+                }
+                if cc_anom_critical_values
+                else {}
+            ),
+            (
+                {
+                    "x": list(d_star_sq),
+                    "y": list(cc_half_fit),
+                    "type": "scatter",
+                    "name": "CC<sub>½</sub> fit",
+                    "line": {"color": "rgb(47, 79, 79)"},
+                }
+                if cc_half_fit
+                else {}
+            ),
+            (
+                {
+                    "x": [uctbx.d_as_d_star_sq(d_min)] * 2,
+                    "y": [0, 1],
+                    "type": "scatter",
+                    "name": f"d_min = {d_min:.2f} Å",
+                    "mode": "lines",
+                    "line": {"color": "rgb(169, 169, 169)", "dash": "dot"},
+                }
+                if d_min
+                else {}
+            ),
+        ],
+        "layout": {
+            "title": "CC<sub>½</sub> vs resolution",
+            "xaxis": {
+                "title": "Resolution (Å)",
+                "tickvals": d_star_sq_tickvals,
+                "ticktext": d_star_sq_ticktext,
+            },
+            "yaxis": {
+                "title": "CC<sub>½</sub>",
+                "range": [min(cc_half + cc_anom if cc_anom else [] + [0]), 1],
+            },
+        },
+        "help": """\
+The correlation coefficients, CC<sub>½</sub>, between random half-datasets. A correlation
+coefficient of +1 indicates good correlation, and 0 indicates no correlation.
+CC<sub>½</sub> is typically close to 1 at low resolution, falling off to close to zero at
+higher resolution. A typical resolution cutoff based on CC<sub>½</sub> is around 0.3-0.5.
+
+[1] Karplus, P. A., & Diederichs, K. (2012). Science, 336(6084), 1030-1033.
+    https://doi.org/10.1126/science.1218231
+[2] Diederichs, K., & Karplus, P. A. (2013). Acta Cryst D, 69(7), 1215-1222.
+    https://doi.org/10.1107/S0907444913001121
+[3] Evans, P. R., & Murshudov, G. N. (2013). Acta Cryst D, 69(7), 1204-1214.
+    https://doi.org/10.1107/S0907444913000061
+""",
+    }

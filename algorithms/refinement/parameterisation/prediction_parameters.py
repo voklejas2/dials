@@ -1,10 +1,9 @@
-from __future__ import absolute_import, division, print_function
-
 from collections import namedtuple
-from dials.array_family import flex
-from scitbx import matrix
-from scitbx import sparse
+
+from scitbx import matrix, sparse
+
 from dials.algorithms.refinement import DialsRefineConfigError
+from dials.array_family import flex
 
 """The PredictionParameterisation class ties together parameterisations for
 individual experimental models: beam, crystal orientation, crystal unit cell
@@ -16,8 +15,13 @@ for scan-static reflection prediction for rotation data, where the predicted
 centroid is expressed as X, Y, phi. Other versions of the class are defined
 elsewhere."""
 
+ParamSet = namedtuple(
+    "ParamSet",
+    ["beam_param", "xl_ori_param", "xl_uc_param", "det_param", "gonio_param"],
+)
 
-class PredictionParameterisation(object):
+
+class PredictionParameterisation:
     """
     Abstract interface for a class that groups together model parameterisations
     relating to diffraction geometry and provides:
@@ -117,10 +121,6 @@ class PredictionParameterisation(object):
             for ids in p.get_experiment_ids()
         }
 
-        ParamSet = namedtuple(
-            "ParamSet",
-            ["beam_param", "xl_ori_param", "xl_uc_param", "det_param", "gonio_param"],
-        )
         self._exp_to_param = {
             i: ParamSet(
                 e2bp.get(i), e2xop.get(i), e2xucp.get(i), e2dp.get(i), e2gp.get(i)
@@ -390,7 +390,7 @@ class PredictionParameterisation(object):
         """Extend results list by n empty results. These will each be a dictionary
         indexed by the given keys. The value for each key will be an empty vector of
         size m, to store the derivatives of n parameters, for m reflections. This
-        method may be overriden by a derived class to e.g. use sparse vectors"""
+        method may be overridden by a derived class to e.g. use sparse vectors"""
 
         new_results = []
         for i in range(n):
@@ -661,7 +661,7 @@ class PredictionParameterisation(object):
         )
 
 
-class SparseGradientVectorMixin(object):
+class SparseGradientVectorMixin:
     """Mixin class to use sparse vectors for storage of gradients of the
     prediction formula"""
 

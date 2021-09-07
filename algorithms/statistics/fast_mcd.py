@@ -1,10 +1,9 @@
-from __future__ import absolute_import, division, print_function
-
 import math
+
+from scitbx.array_family import flex
 
 from dials_refinement_helpers_ext import maha_dist_sq as maha_dist_sq_cpp
 from dials_refinement_helpers_ext import mcd_consistency
-from scitbx.array_family import flex
 
 
 def sample_covariance(a, b):
@@ -127,7 +126,7 @@ def mcd_finite_sample(p, n, alpha):
     return 1 / fp_alpha_n
 
 
-class FastMCD(object):
+class FastMCD:
     """Experimental implementation of the FAST-MCD algorithm of Rousseeuw and
     van Driessen"""
 

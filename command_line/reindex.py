@@ -1,23 +1,19 @@
-# coding: utf-8
-
-from __future__ import absolute_import, division, print_function
-
 # DIALS_ENABLE_COMMAND_LINE_COMPLETION
 
-import os
+
 import copy
-import six.moves.cPickle as pickle
+import os
+import sys
 
 import iotbx.phil
 from cctbx import sgtbx
 from rstbx.symmetry.constraints import parameter_reduction
 
-# from dials.util.command_line import Importer
+import dials.util
 from dials.algorithms.indexing.assign_indices import AssignIndicesGlobal
 from dials.array_family import flex
-from dials.util.options import OptionParser
-from dials.util.options import reflections_and_experiments_from_files
 from dials.util.filter_reflections import filtered_arrays_from_experiments_reflections
+from dials.util.options import OptionParser, reflections_and_experiments_from_files
 
 help_message = """
 
@@ -27,7 +23,7 @@ provided in h,k,l, or a,b,c or x,y,z conventions. By default the change of
 basis operator will also be applied to the space group in the indexed.expt
 file, however, optionally, a space group (including setting) to be applied
 AFTER applying the change of basis operator can be provided.
-Alternatively, to reindex an integated dataset in the case of indexing abiguity,
+Alternatively, to reindex an integated dataset in the case of indexing ambiguity,
 a reference dataset (models.expt and reflection.refl) in the same space
 group can be specified. In this case, any potential twin operators are tested,
 and the dataset is reindexed to the setting that gives the highest correlation
@@ -101,8 +97,8 @@ def derive_change_of_basis_op(from_hkl, to_hkl):
         eqns.solve()
         r.extend(eqns.solution())
 
-    from scitbx.math import continued_fraction
     from scitbx import matrix
+    from scitbx.math import continued_fraction
 
     denom = 12
     r = [
@@ -116,7 +112,7 @@ def derive_change_of_basis_op(from_hkl, to_hkl):
     change_of_basis_op = sgtbx.change_of_basis_op(
         sgtbx.rt_mx(sgtbx.rot_mx(r, denominator=denom))
     ).inverse()
-    print("discovered change_of_basis_op=%s" % (str(change_of_basis_op)))
+    print(f"discovered change_of_basis_op={change_of_basis_op}")
 
     # sanity check that this is the right cb_op
     assert (change_of_basis_op.apply(from_hkl) == to_hkl).count(False) == 0
@@ -156,8 +152,10 @@ def reindex_experiments(experiments, cb_op, space_group=None):
     return reindexed_experiments
 
 
-def run(args):
+@dials.util.show_mail_handle_errors()
+def run(args=None):
     import libtbx.load_env
+
     from dials.util import Sorry
 
     usage = "dials.reindex [options] indexed.expt indexed.refl"
@@ -171,7 +169,7 @@ def run(args):
         epilog=help_message,
     )
 
-    params, options = parser.parse_args(show_diff_phil=True)
+    params, options = parser.parse_args(args, show_diff_phil=True)
 
     reflections, experiments = reflections_and_experiments_from_files(
         params.input.reflections, params.input.experiments
@@ -280,11 +278,11 @@ experiments file must also be specified with the option: reference= """
             R, axis, angle, change_of_basis_op = difference_rotation_matrix_axis_angle(
                 cryst, reference_crystal
             )
-            print("Change of basis op: %s" % change_of_basis_op)
+            print(f"Change of basis op: {change_of_basis_op}")
             print("Rotation matrix to transform input crystal to reference::")
             print(R.mathematica_form(format="%.3f", one_row_per_line=True))
             print(
-                "Rotation of %.3f degrees" % angle,
+                f"Rotation of {angle:.3f} degrees",
                 "about axis (%.3f, %.3f, %.3f)" % axis,
             )
 
@@ -315,10 +313,18 @@ experiments file must also be specified with the option: reference= """
         space_group = params.space_group
         if space_group is not None:
             space_group = space_group.group()
-        experiments = reindex_experiments(
-            experiments, change_of_basis_op, space_group=space_group
-        )
-        print("Saving reindexed experimental models to %s" % params.output.experiments)
+        try:
+            experiments = reindex_experiments(
+                experiments, change_of_basis_op, space_group=space_group
+            )
+        except RuntimeError as e:
+            # Only catch specific errors here
+            if "Unsuitable value for rational rotation matrix." in str(e):
+                original_message = str(e).split(":")[-1].strip()
+                sys.exit(f"Error: {original_message} Is your change_of_basis_op valid?")
+            raise
+
+        print(f"Saving reindexed experimental models to {params.output.experiments}")
         experiments.as_file(params.output.experiments)
 
     if len(reflections):
@@ -347,12 +353,9 @@ experiments file must also be specified with the option: reference= """
         reflections["miller_index"].set_selected(sel, miller_indices_reindexed)
         reflections["miller_index"].set_selected(~sel, (0, 0, 0))
 
-        print("Saving reindexed reflections to %s" % params.output.reflections)
-        with open(params.output.reflections, "wb") as fh:
-            pickle.dump(reflections, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        print(f"Saving reindexed reflections to {params.output.reflections}")
+        reflections.as_file(params.output.reflections)
 
 
 if __name__ == "__main__":
-    import sys
-
-    run(sys.argv[1:])
+    run()

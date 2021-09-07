@@ -1,5 +1,3 @@
-from __future__ import absolute_import, division, print_function
-
 import copy
 import logging
 import math
@@ -7,11 +5,12 @@ import operator
 
 import libtbx.phil
 from cctbx import miller
-from dials.algorithms.indexing import DialsIndexError
-from dials.array_family import flex
 from dxtbx.model import Crystal
 from scitbx import matrix
 from scitbx.math import least_squares_plane, superpose
+
+from dials.algorithms.indexing import DialsIndexError
+from dials.array_family import flex
 
 from .strategy import Strategy
 
@@ -21,7 +20,7 @@ TWO_PI = 2.0 * math.pi
 FIVE_DEG = TWO_PI * 5.0 / 360.0
 
 
-class CompleteGraph(object):
+class CompleteGraph:
     def __init__(self, seed_vertex):
         self.vertices = [seed_vertex]
         self.weight = [{0: 0.0}]
@@ -90,7 +89,7 @@ candidate_spots
     .type = int
 
     d_star_tolerance = 4.0
-    .help = "Number of sigmas from the centroid position for which to"
+    .help = "Number of sigmas from the centroid position for which to "
             "calculate d* bands"
     .type = float
 }
@@ -116,9 +115,25 @@ max_quads = 600
 
 
 class LowResSpotMatch(Strategy):
-    """Lattice search by matching low resolution spots to candidate indices
-    based on resolution and reciprocal space distance between observed spots.
     """
+    A lattice search strategy matching low resolution spots to candidate indices.
+
+    The match is based on resolution and reciprocal space distance between observed
+    spots. A prior unit cell and space group are required and solutions are assessed
+    by matching the low resolution spots against candidate reflection positions
+    predicted from the known cell. This lattice search strategy is a special case
+    designed to work for electron diffraction still images, in which one typically
+    only collects reflections from the zero-order Laue zone. In principle, it is not
+    limited to this type of data, but probably works best with narrow wedges,
+    good initial geometry and a small beam-stop shadow so that a good number of
+    low-order reflections are collected.
+    """
+
+    phil_help = (
+        "A lattice search strategy that matches low resolution spots to candidate "
+        "indices based on a known unit cell and space group. Designed primarily for "
+        "electron diffraction still images."
+    )
 
     phil_scope = libtbx.phil.parse(low_res_spot_match_phil_str)
 
@@ -133,7 +148,7 @@ class LowResSpotMatch(Strategy):
 
             max_lattices (int): The maximum number of lattice models to find
         """
-        super(LowResSpotMatch, self).__init__(params=params, *args, **kwargs)
+        super().__init__(params=params, *args, **kwargs)
         self._target_symmetry_primitive = target_symmetry_primitive
         self._max_lattices = max_lattices
 
@@ -171,7 +186,7 @@ class LowResSpotMatch(Strategy):
             seeds = self.stems
         else:
             seeds = self.seeds
-        logger.info("Using {0} seeds".format(len(seeds)))
+        logger.info("Using %s seeds", len(seeds))
 
         # Second search: match seed spots with another spot from a different
         # reciprocal lattice row, such that the observed reciprocal space distances
@@ -179,39 +194,39 @@ class LowResSpotMatch(Strategy):
         pairs = []
         for seed in seeds:
             pairs.extend(self._pairs_with_seed(seed))
-        logger.info("Found {0} pairs".format(len(pairs)))
+        logger.info("Found %s pairs", len(pairs))
         pairs = list(set(pairs))  # filter duplicates
 
         if self._params.max_pairs:
             pairs.sort(key=operator.attrgetter("total_weight"))
             idx = self._params.max_pairs
             pairs = pairs[0:idx]
-        logger.info("Using {0} highest-scoring pairs".format(len(pairs)))
+        logger.info("Using %s highest-scoring pairs", len(pairs))
 
         # Further search iterations: extend to more spots within tolerated distances
         triplets = []
         for pair in pairs:
             triplets.extend(self._extend_by_candidates(pair))
-        logger.info("Found {0} triplets".format(len(triplets)))
+        logger.info("Found %s triplets", len(triplets))
         triplets = list(set(triplets))  # filter duplicates
         if self._params.max_triplets:
             triplets.sort(key=operator.attrgetter("total_weight"))
             idx = self._params.max_triplets
             triplets = triplets[0:idx]
-        logger.info("Using {0} highest-scoring triplets".format(len(triplets)))
+        logger.info("Using %s highest-scoring triplets", len(triplets))
 
         branches = triplets
         if self._params.search_depth == "quads":
             quads = []
             for triplet in triplets:
                 quads.extend(self._extend_by_candidates(triplet))
-            logger.info("{0} quads".format(len(quads)))
+            logger.info("%s quads", len(quads))
             quads = list(set(quads))  # filter duplicates
             if self._params.max_quads:
                 quads.sort(key=operator.attrgetter("total_weight"))
                 idx = self._params.max_quads
                 quads = quads[0:idx]
-            logger.info("Using {0} highest-scoring quads".format(len(quads)))
+            logger.info("Using %s highest-scoring quads", len(quads))
             branches = quads
 
         # Sort branches by total deviation of observed distances from expected
@@ -257,8 +272,8 @@ class LowResSpotMatch(Strategy):
 
     def _calc_obs_data(self, reflections, experiments):
         """Calculates a set of low resolution observations to try to match to
-    indices. Each observation will record its d* value as well as
-    tolerated d* bands and a 'clock angle'"""
+        indices. Each observation will record its d* value as well as
+        tolerated d* bands and a 'clock angle'"""
 
         spot_d_star = reflections["rlp"].norms()
         if self._params.candidate_spots.limit_resolution_by == "n_spots":

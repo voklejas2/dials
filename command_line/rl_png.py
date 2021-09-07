@@ -1,6 +1,5 @@
 # LIBTBX_PRE_DISPATCHER_INCLUDE_SH export PHENIX_GUI_ENVIRONMENT=1
 # DIALS_ENABLE_COMMAND_LINE_COMPLETION
-from __future__ import absolute_import, division, print_function
 
 import logging
 import math
@@ -9,6 +8,7 @@ import libtbx.phil
 from scitbx import matrix
 from scitbx.array_family import flex
 
+import dials.util
 from dials.algorithms.indexing.indexer import find_max_cell
 from dials.command_line.search_beam_position import run_dps
 from dials.util.reciprocal_lattice import Render3d
@@ -59,7 +59,7 @@ class ReciprocalLatticePng(Render3d):
         self.viewer = PngScene(settings=self.settings)
 
 
-class PngScene(object):
+class PngScene:
     def __init__(self, settings):
         self.settings = settings
         self.rotation_axis = None
@@ -77,6 +77,10 @@ class PngScene(object):
     def set_points(self, points):
         self.points = points
 
+    def set_points_data(self, reflections):
+        # we do not label reciprocal lattice points here
+        pass
+
     def set_colors(self, colors):
         # convert whites to black (background is white)
         colors.set_selected((colors.norms() == math.sqrt(3)), (0, 0, 0))
@@ -87,6 +91,10 @@ class PngScene(object):
 
     def set_reciprocal_lattice_vectors(self, *args, **kwargs):
         # we do not draw reciprocal lattice vectors at this time
+        pass
+
+    def set_reciprocal_crystal_vectors(self, *args, **kwargs):
+        # we do not draw reciprocal crystal vectors at this time either
         pass
 
     def project_2d(self, n):
@@ -128,9 +136,10 @@ class PngScene(object):
         pyplot.close()
 
 
-def run():
-    from dials.util.options import OptionParser, reflections_and_experiments_from_files
+@dials.util.show_mail_handle_errors()
+def run(args=None):
     from dials.util import log
+    from dials.util.options import OptionParser, reflections_and_experiments_from_files
 
     usage = "dials.rl_png [options] experiments.json observations.refl"
 
@@ -143,7 +152,7 @@ def run():
         epilog=help_message,
     )
 
-    params, options = parser.parse_args()
+    params, options = parser.parse_args(args)
     reflections, experiments = reflections_and_experiments_from_files(
         params.input.reflections, params.input.experiments
     )
@@ -192,9 +201,9 @@ def run():
             if len(experiments.crystals()) > 1:
                 prefix = "%i_" % (i + 1)
 
-            f.viewer.plot("rl_%sa.png" % prefix, n=a)
-            f.viewer.plot("rl_%sb.png" % prefix, n=b)
-            f.viewer.plot("rl_%sc.png" % prefix, n=c)
+            f.viewer.plot(f"rl_{prefix}a.png", n=a)
+            f.viewer.plot(f"rl_{prefix}b.png", n=b)
+            f.viewer.plot(f"rl_{prefix}c.png", n=c)
 
     elif n_solutions:
         if "imageset_id" not in reflections:
@@ -219,7 +228,7 @@ def run():
             solutions = [matrix.col(v) for v in result["solutions"]]
             for i in range(min(n_solutions, len(solutions))):
                 v = solutions[i]
-                f.viewer.plot("rl_solution_%s.png" % (i + 1), n=v.elems)
+                f.viewer.plot(f"rl_solution_{i + 1}.png", n=v.elems)
 
 
 if __name__ == "__main__":

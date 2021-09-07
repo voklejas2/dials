@@ -1,8 +1,8 @@
 .. raw:: html
 
-  <a href="https://dials.github.io/dials-1.14/documentation/tutorials/processing_in_detail_betalactamase_dui.html" class="new-documentation">
-  This tutorial requires a DIALS 2.0 installation.<br/>
-  Please click here to go to the tutorial for DIALS 1.14.
+  <a href="https://dials.github.io/dials-2.2/documentation/tutorials/processing_in_detail_betalactamase_dui.html" class="new-documentation">
+  This tutorial requires a DIALS 3 installation.<br/>
+  Please click here to go to the tutorial for DIALS 2.2.
   </a>
 
 Processing in Detail with DUI
@@ -342,7 +342,7 @@ Other useful plots in the report are:
 
 * **Difference between observed and calculated centroids vs phi**,
   which shows how the average
-  residuals in each of X, Y, and φ vary as a fuction of φ.
+  residuals in each of X, Y, and φ vary as a function of φ.
   If scan-varying refinement has been successful in capturing the real changes
   during the scan then we would expect these plots to be straight lines.
 

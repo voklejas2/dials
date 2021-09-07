@@ -1,17 +1,12 @@
 """Contains classes used to construct a target function for refinement,
 principally Target and ReflectionManager."""
 
-# python and cctbx imports
-from __future__ import absolute_import, division, print_function
 
-import abc
 import math
 
-from scitbx.array_family import flex
-from scitbx import sparse
-
-# PHIL
 from libtbx.phil import parse
+from scitbx import sparse
+from scitbx.array_family import flex
 
 phil_str = """
     rmsd_cutoff = *fraction_of_bin_size absolute
@@ -46,7 +41,7 @@ phil_scope = parse(phil_str)
 RAD_TO_DEG = 180.0 / math.pi
 
 
-class TargetFactory(object):
+class TargetFactory:
     @staticmethod
     def from_parameters_and_experiments(
         params,
@@ -111,7 +106,7 @@ class TargetFactory(object):
         )
 
 
-class Target(object):
+class Target:
     """Abstract interface for a target function class
 
     A Target object will be used by a Refinery. It will refer to a Reflection
@@ -131,7 +126,6 @@ class Target(object):
     This should all be set by a derived class.
     """
 
-    __metaclass__ = abc.ABCMeta
     _grad_names = ["dX_dp", "dY_dp", "dphi_dp"]
     rmsd_names = ["RMSD_X", "RMSD_Y", "RMSD_Phi"]
     rmsd_units = ["mm", "mm", "rad"]
@@ -480,7 +474,7 @@ class Target(object):
     @staticmethod
     def _concatenate_gradients(grads):
         """concatenate gradient vectors and return a flex.double. This method
-        may be overriden for the case where these vectors use sparse storage"""
+        may be overridden for the case where these vectors use sparse storage"""
 
         result = grads[0]
         for g in grads[1:]:
@@ -488,7 +482,6 @@ class Target(object):
         return result
 
     @staticmethod
-    @abc.abstractmethod
     def _extract_residuals_and_weights(matches):
         """extract vector of residuals and corresponding weights. The space the
         residuals are measured in (e.g. X, Y and Phi) and the order they are
@@ -496,7 +489,6 @@ class Target(object):
         raise NotImplementedError()
 
     @staticmethod
-    @abc.abstractmethod
     def _extract_squared_residuals(matches):
         """extract vector of squared residuals. The space the residuals are measured
         in (e.g. X, Y and Phi) and the order they are returned is determined by a
@@ -546,7 +538,6 @@ class Target(object):
         rmsds = self._rmsds_core(self._matches.select(sel))
         return rmsds
 
-    @abc.abstractmethod
     def achieved(self):
         """return True to terminate the refinement."""
         raise NotImplementedError()

@@ -1,16 +1,17 @@
 """
 Error model classes for scaling.
 """
-from __future__ import absolute_import, division, print_function
+
 import logging
-import six
 from collections import OrderedDict
-from math import log, exp
-from dials.util import tabulate
-from dials.array_family import flex
+from math import exp, log
+
 from iotbx import phil
 from scitbx import sparse
 from scitbx.math.distributions import normal_distribution
+
+from dials.array_family import flex
+from dials.util import tabulate
 
 logger = logging.getLogger("dials")
 
@@ -29,9 +30,13 @@ phil_scope = phil.parse(
           .type = float
           .help = "Used this fixed value for the error model 'b' parameter"
           .expert_level = 2
-        minimisation = *individual regression
+        minimisation = *individual regression None
           .type = choice
-          .help = "The algorithm to use for basic error model minimisation"
+          .help = "The algorithm to use for basic error model minimisation."
+                  "For individual, the a and b parameters are optimised"
+                  "sequentially. For regression, a linear fit is made to"
+                  "determine both parameters concurrently. If minimisation=None,"
+                  "the model parameters are fixed to their initial or given values."
           .expert_level = 3
         min_Ih = 25.0
             .type = float
@@ -43,28 +48,27 @@ phil_scope = phil.parse(
             .help = "The number of intensity bins to use for the error model optimisation."
             .expert_level = 2
     }
+    reset_error_model = False
+        .type = bool
+        .help = "If True, the error model is reset to the default at the start"
+                "of scaling, as opposed to loading the current error model."
+    grouping = individual grouped *combined
+        .type = choice
+        .help = "This options selects whether one error model is determined"
+                "for all sweeps (combined), whether one error model is"
+                "determined per-sweep (individual), or whether a custom"
+                "grouping should be used. If grouping=grouped, each group"
+                "should be specified with the error_model_group=parameter."
+        .expert_level = 2
+    error_model_group = None
+        .type = ints
+        .multiple = True
+        .help = "Specify a subset of sweeps which should share an error model."
+                "If no groups are specified here, this is interpreted to mean"
+                "that all sweeps should share a common error model."
+
     """
 )
-
-
-def get_error_model_class_and_scope(error_model_params):
-    """Return the correct error model class & phil scope from a params option."""
-    name = error_model_params.error_model
-    if name == "basic":
-        return BasicErrorModel, error_model_params.basic
-    else:
-        raise ValueError("Invalid choice of error model: %s" % name)
-
-
-def get_error_parameters_to_refine(model, scope):
-    """Get a list of components to refine."""
-    active_parameters = []
-    if model.id_ == "basic":
-        if not scope.a:
-            active_parameters.append("a")
-        if not scope.b:
-            active_parameters.append("b")
-    return active_parameters
 
 
 def calc_sigmaprime(x, Ih_table):
@@ -85,7 +89,7 @@ def calc_deltahl(Ih_table, n_h, sigmaprime):
     return delta_hl
 
 
-class ErrorModelRegressionAPM(object):
+class ErrorModelRegressionAPM:
 
     """Parameter manager for error model minimisation using the linear
     regression method.
@@ -153,7 +157,7 @@ class ErrorModelRegressionAPM(object):
         self.model.update([a, b])
 
 
-class ErrorModelA_APM(object):
+class ErrorModelA_APM:
 
     """Parameter manager for minimising A component with individual minimizer"""
 
@@ -174,7 +178,7 @@ class ErrorModelA_APM(object):
         self.model.components["a"].parameters *= self.x[1]
 
 
-class ErrorModelB_APM(object):
+class ErrorModelB_APM:
 
     """Parameter manager for minimising Bcomponent with individual minimizer"""
 
@@ -197,7 +201,7 @@ class ErrorModelB_APM(object):
         self.model.components["b"].parameters = flex.double([self.x[0]])
 
 
-class ErrorModelBinner(object):
+class ErrorModelBinner:
 
     """A binner for the error model data.
 
@@ -231,7 +235,7 @@ class ErrorModelBinner(object):
         self.bin_variances = self.calculate_bin_variances()
 
     def _create_summation_matrix(self):
-        """"Create a summation matrix to allow sums into intensity bins.
+        """Create a summation matrix to allow sums into intensity bins.
 
         This routine attempts to bin into bins equally spaced in log(intensity),
         to give a representative sample across all intensities. To avoid
@@ -327,7 +331,7 @@ class ErrorModelBinner(object):
         return bin_vars
 
 
-class BComponent(object):
+class BComponent:
 
     """The basic error model B parameter component"""
 
@@ -336,7 +340,7 @@ class BComponent(object):
         self._n_params = 1
 
 
-class AComponent(object):
+class AComponent:
 
     """The basic error model A parameter component"""
 
@@ -345,7 +349,7 @@ class AComponent(object):
         self._n_params = 1
 
 
-class BasicErrorModel(object):
+class BasicErrorModel:
 
     """Definition of a basic two-parameter error model."""
 
@@ -353,23 +357,52 @@ class BasicErrorModel(object):
 
     id_ = "basic"
 
-    def __init__(self, Ih_table, basic_params, min_partiality=0.4):
+    def __init__(self, a=None, b=None, basic_params=None):
 
-        """Raises: ValueError if insufficient reflections left after filtering."""
+        """
+        A basic two-parameter error model s'^2 = a^2(s^2 + (bI)^2)
+
+        If a and b are not given as arguments, the params scope is checked to
+        see if a user specified fixed value is set. If no fixed values are given
+        then the model starts with the default parameters a=1.0 b=0.02
+        """
 
         self.free_components = []
         self.sortedy = None
         self.sortedx = None
-        self.filtered_Ih_table = self.filter_unsuitable_reflections(
-            Ih_table, basic_params, min_partiality
-        )
-        a = basic_params.a if basic_params.a else 1.0
-        b = basic_params.b if basic_params.b else 0.02
+        self.binner = None
+        if not basic_params:
+            basic_params = phil_scope.fetch().extract().basic
+        self.params = basic_params
+        self.filtered_Ih_table = None
+        if not a:
+            a = basic_params.a
+            if not a:
+                a = 1.0
+        if not b:
+            b = basic_params.b
+            if not b:
+                b = 0.02
         self.components = {"a": AComponent(a), "b": BComponent(b)}
+        self._active_parameters = []
+        # if the parameters have been set in the phil scope, then these are to be fixed
+        if not basic_params.a:
+            self._active_parameters.append("a")
+        if not basic_params.b:
+            self._active_parameters.append("b")
 
+    def configure_for_refinement(self, Ih_table, min_partiality=0.4):
+        """
+        Add data to allow error model refinement.
+
+        Raises: ValueError if insufficient reflections left after filtering.
+        """
+        self.filtered_Ih_table = self.filter_unsuitable_reflections(
+            Ih_table, self.params, min_partiality
+        )
         # always want binning info so that can calc for output.
         self.binner = ErrorModelBinner(
-            self.filtered_Ih_table, self.min_reflections_required, basic_params.n_bins
+            self.filtered_Ih_table, self.min_reflections_required, self.params.n_bins
         )
 
         # need to calculate sorted deltahl for norm dev plotting (and used by
@@ -379,9 +412,16 @@ class BasicErrorModel(object):
         self.binner.update(self.parameters)
 
     @property
+    def active_parameters(self):
+        return self._active_parameters
+
+    @property
     def parameters(self):
         """A list of the model parameters."""
-        return [self.components["a"].parameters[0], self.components["b"].parameters[0]]
+        return [
+            self.components["a"].parameters[0],
+            abs(self.components["b"].parameters[0]),
+        ]
 
     @parameters.setter
     def parameters(self, parameters):
@@ -403,7 +443,6 @@ class BasicErrorModel(object):
         """Filter suitable reflections for minimisation."""
         return filter_unsuitable_reflections(
             Ih_table,
-            cutoff=12.0,
             min_Ih=error_params.min_Ih,
             min_partiality=min_partiality,
             min_reflections_required=cls.min_reflections_required,
@@ -444,38 +483,28 @@ class BasicErrorModel(object):
 
     def clear_Ih_table(self):
         """Delete the Ih_table, to free memory."""
-        del self.binner.Ih_table
+        if self.binner:
+            self.binner.Ih_table = None
 
     def __str__(self):
         a = abs(self.parameters[0])
         b = abs(self.parameters[1])
-        ISa = "%.3f" % (1.0 / (b * a)) if (b * a) > 0 else "Unable to estimate"
-        if six.PY2:
-            return "\n".join(
-                (
-                    "",
-                    "Error model details:",
-                    "  Type: basic",
-                    "  Parameters: a = %.5f, b = %.5f" % (a, b),
-                    "  estimated I/sigma asymptotic limit: %s" % ISa,
-                    "",
-                )
-            )
+        ISa = f"{1.0 / (b * a):.3f}" if (b * a) > 0 else "Unable to estimate"
         return "\n".join(
             (
                 "",
                 "Error model details:",
                 "  Type: basic",
-                "  Parameters: a = %.5f, b = %.5f" % (a, b),
+                f"  Parameters: a = {a:.5f}, b = {b:.5f}",
                 "  Error model formula: "
-                + u"\u03C3"
+                + "\u03C3"
                 + "'"
-                + u"\xb2"
+                + "\xb2"
                 + " = a"
-                + u"\xb2"
+                + "\xb2"
                 + "("
-                + u"\u03C3\xb2"
-                " + (bI)" + u"\xb2" + ")",
+                + "\u03C3\xb2"
+                " + (bI)" + "\xb2" + ")",
                 "  estimated I/sigma asymptotic limit: %s" % ISa,
                 "",
             )
@@ -490,7 +519,7 @@ class BasicErrorModel(object):
             "Corrected variance",
         ]
         rows = []
-        bin_bounds = ["%.2f" % i for i in self.binner.binning_info["bin_boundaries"]]
+        bin_bounds = [f"{i:.2f}" for i in self.binner.binning_info["bin_boundaries"]]
         for i, (initial_var, bin_var, n_refl) in enumerate(
             zip(
                 self.binner.binning_info["initial_variances"],
@@ -518,23 +547,17 @@ class BasicErrorModel(object):
 
 
 def filter_unsuitable_reflections(
-    Ih_table, cutoff, min_Ih, min_partiality, min_reflections_required
+    Ih_table, min_Ih, min_partiality, min_reflections_required
 ):
-    """Do a first pass to calculate delta_hl and filter out the largest
-    deviants, so that the error model is not misled by these and instead
-    operates on the central ~90% of the data. Also choose reflection groups
-    with n_h > 1, as these have deltas of zero by definition and will bias
-    the variance calculations. Also, only use groups where <Ih> > 25.0, as
-    the assumptions of normally distributed deltas will not hold for low
-    <Ih>."""
-    n_h = Ih_table.calc_nh()
-    sigmaprime = calc_sigmaprime([1.0, 0.0], Ih_table)
-    delta_hl = calc_deltahl(Ih_table, n_h, sigmaprime)
-    # make sure the fit isn't misled by extreme values
-    sel = flex.abs(delta_hl) < cutoff
+    """
+    Choose reflection groups with n_h > 1, as these have deltas of zero by
+    definition and will bias the variance calculations. Also, only use groups
+    where <Ih> > 25.0, as the assumptions of normally distributed deltas will
+    not hold for low <Ih>."""
+
     if "partiality" in Ih_table.Ih_table:
-        sel &= Ih_table.Ih_table["partiality"] > min_partiality
-    Ih_table = Ih_table.select(sel)
+        sel = Ih_table.Ih_table["partiality"] > min_partiality
+        Ih_table = Ih_table.select(sel)
 
     n = Ih_table.size
     sum_I_over_var = (
@@ -566,4 +589,30 @@ def filter_unsuitable_reflections(
     # now make sure any left also have n > 1
     sel = n_h > 1.0
     Ih_table = Ih_table.select(sel)
+
+    #  Filter groups with abnormally high internal variances.
+    # For a reasonable quality dataset, if b=0.04, a=1.25, then for large Imax,
+    # the ratio of the corrected per-reflection variance to the original is
+    # (var'/var)^2 ~= (ab)^2 Imax ~= Imax / 400. So filter any groups where the
+    # internal variance is more than 10x what would reasonably be expected after
+    # error model correction.
+    I = Ih_table.intensities
+    mu = Ih_table.Ih_values
+    g = Ih_table.inverse_scale_factors
+    n_h = flex.double(Ih_table.size, 1.0) * Ih_table.h_index_matrix
+
+    group_variances = (
+        (((I / g) - mu) ** 2)
+        * Ih_table.h_index_matrix
+        / (n_h - flex.double(n_h.size(), 1.0))
+    )
+    avg_variances = (Ih_table.variances / (g ** 2)) * Ih_table.h_index_matrix / n_h
+    ratio = group_variances / avg_variances
+    sel = ratio < max(50, (flex.max(mu) / 40.0))
+    logger.debug(
+        f"{sel.count(False)}/{sel.size()} symmetry groups excluded "
+        "from error model analysis due to high internal variance"
+    )
+    Ih_table = Ih_table.select_on_groups(sel)
+
     return Ih_table

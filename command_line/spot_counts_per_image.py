@@ -1,12 +1,12 @@
-from __future__ import absolute_import, division, print_function
-
 import json
 import sys
 
 import iotbx.phil
+
+import dials.util
+from dials.algorithms.spot_finding import per_image_analysis
 from dials.util import tabulate
 from dials.util.options import OptionParser, reflections_and_experiments_from_files
-from dials.algorithms.spot_finding import per_image_analysis
 
 help_message = """
 
@@ -39,7 +39,8 @@ id = None
 )
 
 
-def run(args):
+@dials.util.show_mail_handle_errors()
+def run(args=None):
     usage = "dials.spot_counts_per_image [options] imported.expt strong.refl"
 
     parser = OptionParser(
@@ -51,7 +52,7 @@ def run(args):
         epilog=help_message,
     )
 
-    params, options = parser.parse_args(show_diff_phil=False)
+    params, options = parser.parse_args(args, show_diff_phil=False)
     reflections, experiments = reflections_and_experiments_from_files(
         params.input.reflections, params.input.experiments
     )
@@ -65,6 +66,12 @@ def run(args):
     if len(reflections) != 1:
         sys.exit("Only one reflection list may be passed")
     reflections = reflections[0]
+
+    if "miller_index" in reflections:
+        sys.exit("Only unindexed reflections are currently supported")
+
+    if any(experiments.crystals()):
+        sys.exit("Only unindexed experiments are currently supported")
 
     reflections.centroid_px_to_mm(experiments)
     reflections.map_centroids_to_reciprocal_space(experiments)
@@ -96,7 +103,7 @@ def run(args):
         ("Overall statistics", ""),
         ("#spots", "%i" % overall_stats.n_spots_total),
         ("#spots_no_ice", "%i" % overall_stats.n_spots_no_ice),
-        ("d_min", "%.2f" % overall_stats.estimated_d_min),
+        ("d_min", f"{overall_stats.estimated_d_min:.2f}"),
         (
             "d_min (distl method 1)",
             "%.2f (%.2f)"
@@ -105,7 +112,7 @@ def run(args):
         (
             "d_min (distl method 2)",
             "%.2f (%.2f)"
-            % (overall_stats.d_min_distl_method_1, overall_stats.noisiness_method_1),
+            % (overall_stats.d_min_distl_method_2, overall_stats.noisiness_method_2),
         ),
     ]
     print(tabulate(rows, headers="firstrow"))
@@ -114,7 +121,7 @@ def run(args):
         if params.split_json:
             for k, v in stats._asdict().items():
                 start, end = params.json.split(".")
-                with open("%s_%s.%s" % (start, k, end), "w") as fp:
+                with open(f"{start}_{k}.{end}", "w") as fp:
                     json.dump(v, fp)
         if params.joint_json:
             with open(params.json, "w") as fp:
@@ -127,4 +134,4 @@ def run(args):
 
 
 if __name__ == "__main__":
-    run(sys.argv[1:])
+    run()

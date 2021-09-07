@@ -1,17 +1,17 @@
 # LIBTBX_SET_DISPATCHER_NAME dev.dials.show_extensions
 
-from __future__ import absolute_import, division, print_function
 
-from dials.util import show_mail_on_error
+import dials.util
 
 
-class Script(object):
+class Script:
     """The class to encapsulate the script."""
 
     def __init__(self):
         """Initialise the script."""
-        from dials.util.options import OptionParser
         from libtbx.phil import parse
+
+        from dials.util.options import OptionParser
 
         # Create the phil parameters
         phil_scope = parse(
@@ -26,12 +26,12 @@ class Script(object):
         usage = "dev.dials.show_extensions [options] /path/to/image/files"
         self.parser = OptionParser(usage=usage, phil=phil_scope)
 
-    def run(self):
+    def run(self, args=None):
         """Run the script."""
         import dials.extensions
 
         # Parse the command line arguments
-        params, options = self.parser.parse_args()
+        params, options = self.parser.parse_args(args)
 
         # Create the list of interfaces
         interfaces = [
@@ -44,7 +44,7 @@ class Script(object):
         # Loop through all the interfaces
         for iface in interfaces:
             print("-" * 80)
-            print("Extension interface: %s" % iface.__name__)
+            print(f"Extension interface: {iface.__name__}")
 
             # Either just show information about interfaces or show some about
             # extensions depending on user input
@@ -52,22 +52,22 @@ class Script(object):
 
                 # Print info about interface
                 if options.verbose > 0:
-                    print(" name = %s" % iface.name)
+                    print(f" name = {iface.name}")
                     if options.verbose > 1:
                         level = options.verbose - 2
                         scope = iface.phil_scope()
                         phil = scope.as_str(print_width=80 - 3, attributes_level=level)
                         phil = "\n".join((" " * 2) + l for l in phil.split("\n"))
                         if phil.strip() != "":
-                            print(" phil:\n%s" % phil)
+                            print(f" phil:\n{phil}")
 
             else:
 
                 # Loop through all the extensions
                 for ext in iface.extensions():
-                    print(" Extension: %s" % ext.__name__)
+                    print(f" Extension: {ext.__name__}")
                     if options.verbose > 0:
-                        print("  name = %s" % ext.name)
+                        print(f"  name = {ext.name}")
                         if options.verbose > 1:
                             level = options.verbose - 2
                             scope = ext.phil_scope()
@@ -76,10 +76,14 @@ class Script(object):
                             )
                             phil = "\n".join((" " * 3) + l for l in phil.split("\n"))
                             if phil.strip() != "":
-                                print("  phil:\n%s" % phil)
+                                print(f"  phil:\n{phil}")
+
+
+@dials.util.show_mail_handle_errors()
+def run(args=None):
+    script = Script()
+    script.run(args)
 
 
 if __name__ == "__main__":
-    with show_mail_on_error():
-        script = Script()
-        script.run()
+    run()

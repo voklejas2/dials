@@ -1,23 +1,16 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
 import math
 
-from cctbx import crystal
-from cctbx import uctbx
-from cctbx import xray
-from libtbx import libtbx
-from libtbx import phil
-from scitbx import fftpack
+from cctbx import crystal, uctbx, xray
+from libtbx import libtbx, phil
+from scitbx import fftpack, matrix
 from scitbx.array_family import flex
-from scitbx import matrix
 
-from dials.algorithms import indexing
 import dials_algorithms_indexing_ext
+from dials.algorithms import indexing
 
-from . import Strategy
-from .utils import is_approximate_integer_multiple, group_vectors
-
+from .strategy import Strategy
+from .utils import group_vectors, is_approximate_integer_multiple
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +41,33 @@ reciprocal_space_grid {
 
 
 class FFT3D(Strategy):
-    """Basis vector search using a 3D FFT.
+    """
+    Basis vector search using a 3D FFT in reciprocal space.
+
+    Reciprocal space is sampled as a 3D Cartesian grid, aligned with the basis of the
+    laboratory frame. The reciprocal-space positions of the centroids of measured
+    spots are ascribed a value of 1, with the rest of the grid assigned a value of 0.
+    A 3D FFT is performed and the three shortest non-collinear reciprocal spatial
+    wave vectors with appreciable spectral weight correspond to the basis vectors of
+    the real space lattice.
+
+    Because this procedure requires a sampling of all of reciprocal space, up to the
+    d* value of the measured spot with the highest resolution, it can be more memory
+    intensive than alternative approaches. To mitigate this, the 3D FFT will
+    sometimes be curtailed to a region of reciprocal space below a certain
+    resolution, and higher-resolution spots will be ignored.
 
     See:
         Bricogne, G. (1986). Proceedings of the EEC Cooperative Workshop on Position-Sensitive Detector Software (Phase III), p. 28. Paris: LURE.
         Campbell, J. W. (1998). J. Appl. Cryst. 31, 407-413.
     """
+
+    phil_help = (
+        "Search for the basis vectors of the direct lattice by performing a 3D FFT in "
+        "reciprocal space of the density of found spots. Since this can be quite "
+        "memory-intensive, the data used for indexing may automatically be "
+        "constrained to just the lower resolution spots."
+    )
 
     phil_scope = phil.parse(fft3d_phil_str)
 
@@ -78,7 +92,7 @@ class FFT3D(Strategy):
             min_cell (float): A conservative lower bound on the minimum possible
                 primitive unit cell dimension.
         """
-        super(FFT3D, self).__init__(max_cell, params=params, *args, **kwargs)
+        super().__init__(max_cell, params=params, *args, **kwargs)
         n_points = self._params.reciprocal_space_grid.n_points
         self._gridding = fftpack.adjust_gridding_triple(
             (n_points, n_points, n_points), max_prime=5
@@ -112,7 +126,7 @@ class FFT3D(Strategy):
             d_min = 5 * max_cell / self._n_points
             d_spacings = 1 / reciprocal_lattice_vectors.norms()
             d_min = max(d_min, min(d_spacings))
-            logger.info("Setting d_min: %.2f" % d_min)
+            logger.info("Setting d_min: %.2f", d_min)
         else:
             d_min = self._params.reciprocal_space_grid.d_min
 
@@ -152,7 +166,7 @@ class FFT3D(Strategy):
         vectors = [vectors[i] for i in perm]
 
         for i, (v, volume) in enumerate(zip(vectors, volumes)):
-            logger.debug("%s %s %s" % (i, v.length(), volume))
+            logger.debug(f"{i} {v.length()} {volume}")
 
         # sort by length
         lengths = flex.double(v.length() for v in vectors)
@@ -170,8 +184,7 @@ class FFT3D(Strategy):
                     v_u, v
                 ):
                     logger.debug(
-                        "rejecting %s: integer multiple of %s"
-                        % (v.length(), v_u.length())
+                        "rejecting %s: integer multiple of %s", v.length(), v_u.length()
                     )
                     is_unique = False
                     break
@@ -194,7 +207,7 @@ class FFT3D(Strategy):
         )
 
         logger.info(
-            "Number of centroids used: %i" % ((reciprocal_space_grid > 0).count(True))
+            "Number of centroids used: %i", (reciprocal_space_grid > 0).count(True)
         )
 
         # gb_to_bytes = 1073741824
@@ -226,7 +239,7 @@ class FFT3D(Strategy):
 
         if self._params.b_iso is libtbx.Auto:
             self._params.b_iso = -4 * d_min ** 2 * math.log(0.05)
-            logger.debug("Setting b_iso = %.1f" % self._params.b_iso)
+            logger.debug("Setting b_iso = %.1f", self._params.b_iso)
         used_in_indexing = flex.bool(reciprocal_lattice_vectors.size(), True)
         dials_algorithms_indexing_ext.map_centroids_to_reciprocal_space_grid(
             grid,

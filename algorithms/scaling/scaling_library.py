@@ -8,28 +8,30 @@ tables and ExperimentList objects (and sometimes phil_scope objects if
 necessary), and return common dials objects such as reflection tables and
 ExperimentLists.
 """
-from __future__ import absolute_import, division, print_function
 
 import logging
 import uuid
-import pkg_resources
 from copy import deepcopy
+from unittest.mock import Mock
+
+import numpy as np
+import pkg_resources
 
 import iotbx.merging_statistics
-from cctbx import miller, crystal, uctbx
+from cctbx import crystal, miller, uctbx
 from dxtbx.model import Experiment
-from dials.array_family import flex
-from dials.util.options import OptionParser
-from dials.util import Sorry
-from dials.algorithms.scaling.Ih_table import IhTable
-from dials.algorithms.scaling.model.model import KBScalingModel
-from dials.algorithms.scaling.scaling_utilities import (
-    calculate_prescaling_correction,
-    DialsMergingStatisticsError,
-)
 from iotbx import cif, mtz
-from libtbx import phil
-from mock import Mock
+from libtbx import Auto, phil
+
+from dials.algorithms.scaling.Ih_table import IhTable
+from dials.algorithms.scaling.model.model import KBScalingModel, PhysicalScalingModel
+from dials.algorithms.scaling.scaling_utilities import (
+    DialsMergingStatisticsError,
+    calculate_prescaling_correction,
+)
+from dials.array_family import flex
+from dials.util import Sorry
+from dials.util.options import OptionParser
 
 logger = logging.getLogger("dials")
 
@@ -53,14 +55,16 @@ def set_image_ranges_in_scaling_models(experiments):
     return experiments
 
 
-def choose_scaling_intensities(reflection_table, intensity_choice="profile"):
-    """Choose which intensities to use for scaling. The LP, QE and
+def choose_initial_scaling_intensities(reflection_table, intensity_choice="profile"):
+    """Choose which intensities to initially use for scaling. The LP, QE and
     partiality corrections are also applied. Two new columns are
     added to the reflection table 'intensity' and 'variance', which have
     all corrections applied except an inverse scale factor."""
     if intensity_choice == "profile":
         intensity_choice = "prf"  # rename to allow string matching with refl table
-    if intensity_choice == "prf":
+    if "intensity.prf.value" not in reflection_table:
+        intensity_choice = "sum"
+    elif intensity_choice == "prf":
         if (
             reflection_table.get_flags(reflection_table.flags.integrated_prf).count(
                 True
@@ -73,46 +77,49 @@ def choose_scaling_intensities(reflection_table, intensity_choice="profile"):
             intensity_choice = "sum"
     reflection_table = calculate_prescaling_correction(reflection_table)
     conv = reflection_table["prescaling_correction"]
-    intstr = "intensity." + intensity_choice + ".value"
-    if intstr not in reflection_table:
-        # Can't find selection, try to choose prf, if not then sum (also catches combine
-        # which should not be used at this point)
-        if "intensity.prf.value" in reflection_table:
-            intstr = "intensity.prf.value"
-        else:
-            assert (
-                "intensity.sum.value" in reflection_table
-            ), """No recognised
-        intensity values found."""
-            intstr = "intensity.sum.value"
-        varstr = intstr.rstrip("value") + "variance"
+    # if prf/sum, use those. If combine, use prf else sum for each refl.
+    if intensity_choice == "prf":
+        reflection_table["intensity"] = reflection_table["intensity.prf.value"] * conv
+        reflection_table["variance"] = (
+            reflection_table["intensity.prf.variance"] * conv * conv
+        )
     else:
-        varstr = intstr.rstrip("value") + "variance"
-        logger.info(
-            """%s intensities will be used for scaling (and mtz output if applicable). \n""",
-            intstr,
-        )
-
-    # prf partial intensities are the 'full' intensity values but sum are not
-    if "partiality" in reflection_table and intstr == "intensity.sum.value":
-        inverse_partiality = flex.double(reflection_table.size(), 1.0)
-        nonzero_partiality_sel = reflection_table["partiality"] > 0.0
-        good_refl = reflection_table.select(reflection_table["partiality"] > 0.0)
-        inverse_partiality.set_selected(
-            nonzero_partiality_sel.iselection(), 1.0 / good_refl["partiality"]
-        )
-        conv *= inverse_partiality
-
-    reflection_table["intensity"] = reflection_table[intstr] * conv
-    reflection_table["variance"] = reflection_table[varstr] * conv * conv
-    if (
-        "partiality.inv.variance" in reflection_table
-        and intstr == "intensity.sum.value"
-    ):
-        reflection_table["variance"] += (
-            reflection_table[intstr] * reflection_table["partiality.inv.variance"]
-        )
-
+        # first fill in summation intensities.
+        if "partiality" in reflection_table:
+            inverse_partiality = flex.double(reflection_table.size(), 1.0)
+            nonzero_partiality_sel = reflection_table["partiality"] > 0.0
+            good_refl = reflection_table.select(reflection_table["partiality"] > 0.0)
+            inverse_partiality.set_selected(
+                nonzero_partiality_sel.iselection(), 1.0 / good_refl["partiality"]
+            )
+            reflection_table["intensity"] = (
+                reflection_table["intensity.sum.value"] * conv * inverse_partiality
+            )
+            reflection_table["variance"] = reflection_table[
+                "intensity.sum.variance"
+            ] * flex.pow2(conv * inverse_partiality)
+            if "partiality.inv.variance" in reflection_table:
+                reflection_table["variance"] += (
+                    reflection_table["intensity.sum.value"]
+                    * reflection_table["partiality.inv.variance"]
+                )
+        else:
+            reflection_table["intensity"] = (
+                reflection_table["intensity.sum.value"] * conv
+            )
+            reflection_table["variance"] = (
+                reflection_table["intensity.sum.variance"] * conv * conv
+            )
+        if intensity_choice == "combine":
+            # now overwrite prf if we have it.
+            sel = reflection_table.get_flags(reflection_table.flags.integrated_prf)
+            isel = sel.iselection()
+            Iprf = (reflection_table["intensity.prf.value"] * conv).select(sel)
+            Vprf = (reflection_table["intensity.prf.variance"] * conv * conv).select(
+                sel
+            )
+            reflection_table["intensity"].set_selected(isel, Iprf)
+            reflection_table["variance"].set_selected(isel, Vprf)
     variance_mask = reflection_table["variance"] <= 0.0
     reflection_table.set_flags(
         variance_mask, reflection_table.flags.excluded_for_scaling
@@ -195,93 +202,45 @@ def scale_single_dataset(reflection_table, experiment, params=None, model="physi
     return scaler.reflection_table
 
 
-def create_auto_scaling_model(params, experiments, reflections):
-    """Create a scaling model with auto determined parameterisation.
-
-    Assumes that only called when model parameter not specified by user."""
-    models = experiments.scaling_models()
-    if None in models or params.overwrite_existing_models:
-        phil_scope = phil.parse(
-            """
-        include scope dials.command_line.scale.phil_scope
-        """,
-            process_includes=True,
-        )
-        optionparser = OptionParser(phil=phil_scope, check_format=False)
-        default_params, _ = optionparser.parse_args(args=[], quick_parse=True)
-        for exp, refl in zip(experiments, reflections):
-            model = exp.scaling_model
-            if not model or params.overwrite_existing_models:
-                if not exp.scan:
-                    params.model = "KB"
-                else:  # set model physical unless scan < 1.0 degree
-                    osc_range = (
-                        exp.scan.get_oscillation_range()[1]
-                        - exp.scan.get_oscillation_range()[0]
-                    )
-                    params.model = "physical"
-                    if osc_range < 1.0:
-                        params.model = "KB"
-                    elif osc_range < 10.0:
-                        scale_interval, decay_interval = (2.0, 3.0)
-                    elif osc_range < 25.0:
-                        scale_interval, decay_interval = (4.0, 5.0)
-                    elif osc_range < 90.0:
-                        scale_interval, decay_interval = (8.0, 10.0)
-                    else:
-                        scale_interval, decay_interval = (15.0, 20.0)
-                    if params.model == "physical":
-                        # only set these if not changed by the user
-                        if (
-                            default_params.physical.scale_interval
-                            == params.physical.scale_interval
-                        ):
-                            params.physical.scale_interval = scale_interval
-                        if (
-                            default_params.physical.decay_interval
-                            == params.physical.decay_interval
-                        ):
-                            params.physical.decay_interval = decay_interval
-                        if (
-                            osc_range < 60.0
-                            and default_params.physical.absorption_correction
-                            == params.physical.absorption_correction
-                        ):
-                            params.physical.absorption_correction = False
-
-                # now load correct factory and make scaling model.
-                model_class = None
-                for entry_point in pkg_resources.iter_entry_points(
-                    "dxtbx.scaling_model_ext"
-                ):
-                    if entry_point.name == params.model:
-                        model_class = entry_point.load()
-                        break
-                exp.scaling_model = model_class.from_data(params, exp, refl)
-    return experiments
-
-
-def create_scaling_model(params, experiments, reflection_tables):
-    """Create or load a scaling model for multiple datasets."""
-    models = experiments.scaling_models()
-    if (
-        None in models or params.overwrite_existing_models
-    ):  # else, don't need to anything if all have models
+def create_scaling_model(params, experiments, reflections):
+    """Loop through the experiments, creating the scaling models."""
+    autos = [None, Auto, "auto", "Auto"]
+    use_auto_model = params.model in autos
+    # Determine non-auto model to use outside the loop over datasets.
+    if not use_auto_model:
         model_class = None
         for entry_point in pkg_resources.iter_entry_points("dxtbx.scaling_model_ext"):
             if entry_point.name == params.model:
                 model_class = entry_point.load()
                 break
         if not model_class:
-            raise ValueError("Unable to create scaling model of type %s" % params.model)
-        for (expt, refl) in zip(experiments, reflection_tables):
-            model = expt.scaling_model
-            if not model or params.overwrite_existing_models:
-                expt.scaling_model = model_class.from_data(params, expt, refl)
+            raise ValueError(f"Unable to create scaling model of type {params.model}")
+
+    for expt, refl in zip(experiments, reflections):
+        if not expt.scaling_model or params.overwrite_existing_models:
+            # need to make a new model
+            if use_auto_model:
+                if not expt.scan:
+                    model = KBScalingModel
+                else:  # set model as physical unless scan < 1.0 degree
+                    osc_range = expt.scan.get_oscillation_range()
+                    abs_osc_range = abs(osc_range[1] - osc_range[0])
+                    if abs_osc_range < 1.0:
+                        model = KBScalingModel
+                    else:
+                        model = PhysicalScalingModel
+            else:
+                model = model_class
+            expt.scaling_model = model.from_data(params, expt, refl)
+        else:
+            # allow for updating of an existing model.
+            expt.scaling_model.update(params)
     return experiments
 
 
-def create_Ih_table(experiments, reflections, selections=None, n_blocks=1):
+def create_Ih_table(
+    experiments, reflections, selections=None, n_blocks=1, anomalous=False
+):
     """Create an Ih table from a list of experiments and reflections. Optionally,
     a selection list can also be given, to select data from each reflection table.
     Allow an unequal number of experiments and reflections, as only need to
@@ -308,12 +267,22 @@ def create_Ih_table(experiments, reflections, selections=None, n_blocks=1):
         else:
             input_tables.append(reflection)
             indices_lists = None
-    Ih_table = IhTable(input_tables, space_group_0, indices_lists, nblocks=n_blocks)
+    Ih_table = IhTable(
+        input_tables,
+        space_group_0,
+        indices_lists,
+        nblocks=n_blocks,
+        anomalous=anomalous,
+    )
     return Ih_table
 
 
 def scaled_data_as_miller_array(
-    reflection_table_list, experiments, best_unit_cell=None, anomalous_flag=False
+    reflection_table_list,
+    experiments,
+    best_unit_cell=None,
+    anomalous_flag=False,
+    wavelength=None,
 ):
     """Get a scaled miller array from an experiment and reflection table."""
     if len(reflection_table_list) > 1:
@@ -372,7 +341,15 @@ will not be used for calculating merging statistics""",
         flex.sqrt(joint_table["intensity.scale.variance"])
         / joint_table["inverse_scale_factor"]
     )
-    i_obs.set_info(miller.array_info(source="DIALS", source_type="reflection_tables"))
+    if not wavelength:
+        wavelength = np.mean([expt.beam.get_wavelength() for expt in experiments])
+    i_obs.set_info(
+        miller.array_info(
+            source="DIALS",
+            source_type="reflection_tables",
+            wavelength=wavelength,
+        )
+    )
     return i_obs
 
 
@@ -399,7 +376,8 @@ def merging_stats_from_scaled_array(
 
     if scaled_miller_array.is_unique_set_under_symmetry():
         raise DialsMergingStatisticsError(
-            "Dataset contains no equivalent reflections, merging statistics cannot be calculated."
+            "Dataset contains no equivalent reflections, merging statistics "
+            "cannot be calculated."
         )
     try:
         result = iotbx.merging_statistics.dataset_statistics(
@@ -411,28 +389,43 @@ def merging_stats_from_scaled_array(
             use_internal_variance=use_internal_variance,
             cc_one_half_significance_level=0.01,
         )
-        if anomalous:
-            intensities_anom = scaled_miller_array.as_anomalous_array()
-            intensities_anom = intensities_anom.map_to_asu().customized_copy(
-                info=scaled_miller_array.info()
-            )
-            anom_result = iotbx.merging_statistics.dataset_statistics(
-                i_obs=intensities_anom,
-                n_bins=n_bins,
-                anomalous=True,
-                sigma_filtering=None,
-                cc_one_half_significance_level=0.01,
-                eliminate_sys_absent=False,
-                use_internal_variance=use_internal_variance,
-            )
-        else:
-            anom_result = False
     except (RuntimeError, Sorry) as e:
         raise DialsMergingStatisticsError(
-            "Error encountered during merging statistics calculation:\n%s" % e
+            f"Error encountered during merging statistics calculation:\n{e}"
         )
-    else:
-        return result, anom_result
+
+    anom_result = None
+
+    if anomalous:
+        intensities_anom = scaled_miller_array.as_anomalous_array()
+        intensities_anom = intensities_anom.map_to_asu().customized_copy(
+            info=scaled_miller_array.info()
+        )
+        if intensities_anom.is_unique_set_under_symmetry():
+            logger.warning(
+                "Anomalous dataset contains no equivalent reflections, anomalous "
+                "merging statistics cannot be calculated."
+            )
+        else:
+            try:
+                anom_result = iotbx.merging_statistics.dataset_statistics(
+                    i_obs=intensities_anom,
+                    n_bins=n_bins,
+                    anomalous=True,
+                    sigma_filtering=None,
+                    cc_one_half_significance_level=0.01,
+                    eliminate_sys_absent=False,
+                    use_internal_variance=use_internal_variance,
+                )
+            except (RuntimeError, Sorry) as e:
+                logger.warning(
+                    "Error encountered during anomalous merging statistics "
+                    "calculation:\n%s",
+                    e,
+                    exc_info=True,
+                )
+
+    return result, anom_result
 
 
 def intensity_array_from_cif_file(cif_file):
@@ -493,7 +486,9 @@ def create_datastructures_for_target_mtz(experiments, mtz_file):
                 flex.bool(r_tplus.size(), False), r_tplus.flags.bad_for_scaling
             )
             r_tplus = r_tplus.select(r_tplus["variance"] != 0.0)
-            Ih_table = create_Ih_table([experiments[0]], [r_tplus]).blocked_data_list[0]
+            Ih_table = create_Ih_table(
+                [experiments[0]], [r_tplus], anomalous=True
+            ).blocked_data_list[0]
             r_t["intensity"] = Ih_table.Ih_values
             inv_var = (
                 Ih_table.weights * Ih_table.h_index_matrix

@@ -1,14 +1,11 @@
-from __future__ import absolute_import, division, print_function
-
 from itertools import combinations
 
 from libtbx.phil import parse
 from scitbx import matrix
 from scitbx.math import r3_rotation_axis_and_angle_from_matrix
 
-from dials.util import show_mail_on_error
-from dials.util.options import flatten_experiments
-from dials.util.options import OptionParser
+import dials.util
+from dials.util.options import OptionParser, flatten_experiments
 
 help_message = """
 
@@ -31,7 +28,7 @@ min_distance = 10.0
 )
 
 
-class Script(object):
+class Script:
     """A class for running the script."""
 
     def __init__(self):
@@ -48,10 +45,10 @@ class Script(object):
             read_experiments=True,
         )
 
-    def run(self):
+    def run(self, args=None):
         """Execute the script."""
         # Parse the command line
-        params, options = self.parser.parse_args(show_diff_phil=True)
+        params, options = self.parser.parse_args(args, show_diff_phil=True)
 
         # Check the number of experiments is at least 2
         experiments = flatten_experiments(params.input.experiments)
@@ -81,7 +78,7 @@ class Script(object):
             axis = matrix.col(rot.axis)
             if abs(angle) < 10:
                 continue
-            print("Axis: %8.5f %8.5f %8.5f" % axis.elems, "angle: %7.4f" % angle)
+            print("Axis: %8.5f %8.5f %8.5f" % axis.elems, f"angle: {angle:7.4f}")
 
 
 def determine_axis(detectors, params):
@@ -122,7 +119,7 @@ def determine_axis(detectors, params):
     print(
         "Centre: %7.4f %7.4f %7.4f" % centre.elems,
         "  axis: %7.4f %7.4f %7.4f" % axis.elems,
-        "angle: %.2f" % two_theta,
+        f"angle: {two_theta:.2f}",
     )
 
 
@@ -131,7 +128,7 @@ def component(a, n):
 
 
 def find_centre_of_rotation(x1, x2, y1, y2):
-    """Find centre of rotation which takes postion x1 -> x2 and y1 -> y2"""
+    """Find centre of rotation which takes position x1 -> x2 and y1 -> y2"""
 
     # chords of rotation of x, y
 
@@ -163,7 +160,11 @@ def find_centre_of_rotation(x1, x2, y1, y2):
     return oy + d * ny, axis
 
 
+@dials.util.show_mail_handle_errors()
+def run(args=None):
+    script = Script()
+    script.run(args)
+
+
 if __name__ == "__main__":
-    with show_mail_on_error():
-        script = Script()
-        script.run()
+    run()

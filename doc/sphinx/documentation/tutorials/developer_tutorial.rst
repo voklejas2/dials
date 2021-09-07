@@ -1,8 +1,8 @@
 .. raw:: html
 
-  <a href="https://dials.github.io/dials-1.14/documentation/tutorials/developer_tutorial.html" class="new-documentation">
-  This tutorial requires a DIALS 2.0 installation.<br/>
-  Please click here to go to the tutorial for DIALS 1.14.
+  <a href="https://dials.github.io/dials-2.2/documentation/tutorials/developer_tutorial.html" class="new-documentation">
+  This tutorial requires a DIALS 3 installation.<br/>
+  Please click here to go to the tutorial for DIALS 2.2.
   </a>
 
 Developer Tutorial
@@ -98,7 +98,7 @@ partiality of reflections and computing the foreground/background mask. Of these
 the bounding box and mask methods are crucial for integration to work;
 partiality is currently only used in reporting and can be a placeholder.
 
-The extention should have the ability to dump the profile model to phil
+The extension should have the ability to dump the profile model to phil
 parameters so that it can be input via a profile.phil file to, for example,
 re-run integration with the same profile parameters.
 
@@ -201,7 +201,7 @@ reflection list.
 ..  +==========+============+===============================+
 ..  | 3d       | rotation   | 3D shoeboxes                  |
 ..  +----------+------------+-------------------------------+
-..  | flat3d   | rotation   | 3D shoeboxes flattend         |
+..  | flat3d   | rotation   | 3D shoeboxes flattened        |
 ..  +----------+------------+-------------------------------+
 ..  | 2d       | rotation   | 2D partials                   |
 ..  +----------+------------+-------------------------------+

@@ -1,17 +1,17 @@
 """Analysis of centroid residuals for determining suitable refinement and
 outlier rejection parameters automatically"""
 
-from __future__ import absolute_import, division, print_function
 
 import math
 
-from dials.array_family import flex
 from scitbx.math.periodogram import Periodogram
+
+from dials.array_family import flex
 
 RAD2DEG = 180.0 / math.pi
 
 
-class CentroidAnalyser(object):
+class CentroidAnalyser:
     def __init__(self, reflections, av_callback=flex.mean, debug=False):
 
         # flags to indicate at what level the analysis has been performed

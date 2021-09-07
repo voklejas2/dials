@@ -1,19 +1,19 @@
-from __future__ import absolute_import, division, print_function
-
 import os
 import sys
 
+from PIL import Image
+
 import iotbx.phil
+from dxtbx.model.detector_helpers import get_detector_projection_2d_axes
+
 from dials.algorithms.image.threshold import DispersionThresholdDebug
 from dials.array_family import flex
-from dials.util import Sorry
+from dials.util import Sorry, show_mail_handle_errors
 from dials.util.image_viewer.slip_viewer.tile_generation import (
     get_flex_image,
     get_flex_image_multipanel,
 )
-from dials.util.options import flatten_experiments
-from dials.util.options import OptionParser
-from PIL import Image
+from dials.util.options import OptionParser, flatten_experiments
 
 help_message = """
 
@@ -39,6 +39,8 @@ binning = 1
 brightness = 100
   .type = float(value_min=0.0)
 colour_scheme = *greyscale rainbow heatmap inverse_greyscale
+  .type = choice
+projection = lab *image
   .type = choice
 padding = 4
   .type = int(value_min=0)
@@ -99,7 +101,8 @@ output {
 colour_schemes = {"greyscale": 0, "rainbow": 1, "heatmap": 2, "inverse_greyscale": 3}
 
 
-def run(args):
+@show_mail_handle_errors()
+def run(args=None):
     usage = "dials.export_bitmaps [options] models.expt | image.cbf"
 
     parser = OptionParser(
@@ -111,7 +114,7 @@ def run(args):
         epilog=help_message,
     )
 
-    params, options = parser.parse_args(show_diff_phil=True)
+    params, options = parser.parse_args(args, show_diff_phil=True)
 
     experiments = flatten_experiments(params.input.experiments)
     if len(experiments) == 0:
@@ -139,6 +142,10 @@ def imageset_as_bitmaps(imageset, params):
     output_files = []
 
     detector = imageset.get_detector()
+
+    # Furnish detector with 2D projection axes
+    detector.projected_2d = get_detector_projection_2d_axes(detector)
+    detector.projection = params.projection
 
     panel = detector[0]
     scan = imageset.get_scan()
@@ -187,7 +194,7 @@ def imageset_as_bitmaps(imageset, params):
             # also binning doesn't work
             flex_image = get_flex_image_multipanel(
                 brightness=brightness,
-                panels=detector,
+                detector=detector,
                 image_data=image,
                 binning=binning,
                 beam=imageset.get_beam(),
@@ -226,7 +233,7 @@ def imageset_as_bitmaps(imageset, params):
                 ),
             )
 
-        print("Exporting %s" % path)
+        print(f"Exporting {path}")
         output_files.append(path)
         with open(path, "wb") as tmp_stream:
             pil_img.save(
@@ -306,4 +313,4 @@ def image_filter(
 
 
 if __name__ == "__main__":
-    run(sys.argv[1:])
+    run()

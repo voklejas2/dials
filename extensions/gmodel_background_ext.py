@@ -1,7 +1,4 @@
-from __future__ import absolute_import, division, print_function
-
-
-class GModelBackgroundExt(object):
+class GModelBackgroundExt:
     """An extension class implementing a robust GLM background algorithm."""
 
     name = "gmodel"
@@ -43,6 +40,7 @@ class GModelBackgroundExt(object):
         :param experiments: The list of experiments
         """
         from libtbx.phil import parse
+
         from dials.algorithms.background.gmodel import BackgroundAlgorithm
 
         # Create some default parameters

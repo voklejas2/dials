@@ -1,14 +1,17 @@
 """Contains classes used to manage the reflections used during refinement,
 principally ReflectionManager."""
-from __future__ import absolute_import, division, print_function
 
 import logging
 import math
 import random
 
+import libtbx
+from libtbx.phil import parse
+from scitbx import matrix
+from scitbx.math import five_number_summary
+
 import dials.util
-from dials.algorithms.refinement import DialsRefineConfigError
-from dials.algorithms.refinement import weighting_strategies
+from dials.algorithms.refinement import DialsRefineConfigError, weighting_strategies
 from dials.algorithms.refinement.analysis.centroid_analysis import CentroidAnalyser
 from dials.algorithms.refinement.outlier_detection.outlier_base import (
     phil_str as outlier_phil_str,
@@ -18,10 +21,6 @@ from dials.algorithms.refinement.refinement_helpers import (
     set_obs_s1,
 )
 from dials.array_family import flex
-import libtbx
-from libtbx.phil import parse
-from scitbx import matrix
-from scitbx.math import five_number_summary
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +71,14 @@ phil_str = (
       .type = float(value_min = 0)
       .expert_level = 1
 
-    trim_scan_edges = 0.0
+    scan_margin = 0.0
       .help = "Reflections within this value in degrees from the centre of the"
               "first or last image of the scan will be removed before"
               "refinement, unless doing so would result in too few remaining"
               "reflections. Reflections that are truncated at the scan edges"
               "have poorly-determined centroids and can bias the refined model"
               "if they are included."
-      .type = float(value_min=0,value_max=1)
+      .type = float(value_min=0,value_max=5)
       .expert_level = 1
 
     weighting_strategy
@@ -110,7 +109,7 @@ phil_str = (
 phil_scope = parse(phil_str)
 
 
-class BlockCalculator(object):
+class BlockCalculator:
     """Utility class to calculate and set columns in the provided reflection
     table, which will be used during scan-varying refinement. The columns are a
     'block' number and an associated 'block_centre', giving the image number in
@@ -206,7 +205,7 @@ class BlockCalculator(object):
         return self._reflections
 
 
-class ReflectionManagerFactory(object):
+class ReflectionManagerFactory:
     @staticmethod
     def from_parameters_reflections_experiments(
         params, reflections, experiments, do_stills=False
@@ -241,7 +240,7 @@ class ReflectionManagerFactory(object):
             # check incompatible weighting strategy
             if params.weighting_strategy.override in ["stills", "external_deltapsi"]:
                 msg = (
-                    'The "{0}" weighting strategy is not compatible with '
+                    'The "{}" weighting strategy is not compatible with '
                     "scan refinement"
                 ).format(params.weighting_strategy.override)
                 raise DialsRefineConfigError(msg)
@@ -252,12 +251,6 @@ class ReflectionManagerFactory(object):
                 params.outlier.algorithm = "sauter_poon"
             else:
                 params.outlier.algorithm = "mcd"
-
-        if params.outlier.separate_panels is libtbx.Auto:
-            if do_stills:
-                params.outlier.separate_panels = False
-            else:
-                params.outlier.separate_panels = True
 
         if params.outlier.algorithm == "sauter_poon":
             if params.outlier.sauter_poon.px_sz is libtbx.Auto:
@@ -321,13 +314,13 @@ class ReflectionManagerFactory(object):
             max_sample_size=params.maximum_sample_size,
             min_sample_size=params.minimum_sample_size,
             close_to_spindle_cutoff=params.close_to_spindle_cutoff,
-            trim_scan_edges=params.trim_scan_edges,
+            scan_margin=params.scan_margin,
             outlier_detector=outlier_detector,
             weighting_strategy_override=weighting_strategy,
         )
 
 
-class ReflectionManager(object):
+class ReflectionManager:
     """A class to maintain information about observed and predicted
     reflections for refinement.
 
@@ -347,7 +340,7 @@ class ReflectionManager(object):
         max_sample_size=None,
         min_sample_size=0,
         close_to_spindle_cutoff=0.02,
-        trim_scan_edges=0.0,
+        scan_margin=0.0,
         outlier_detector=None,
         weighting_strategy_override=None,
     ):
@@ -394,7 +387,7 @@ class ReflectionManager(object):
 
         # set up the reflection inclusion criteria
         self._close_to_spindle_cutoff = close_to_spindle_cutoff  # close to spindle
-        self._trim_scan_edges = DEG2RAD * trim_scan_edges  # close to the scan edge
+        self._scan_margin = DEG2RAD * scan_margin  # close to the scan edge
         self._outlier_detector = outlier_detector  # for outlier rejection
         self._nref_per_degree = nref_per_degree  # random subsets
         self._max_sample_size = max_sample_size  # sample size ceiling
@@ -569,12 +562,12 @@ class ReflectionManager(object):
 
             # third test: reject reflections close to the centres of the first and
             # last images in the scan
-            if self._trim_scan_edges > 0.0:
+            if self._scan_margin > 0.0:
                 edge1, edge2 = [e + 0.5 for e in exp.scan.get_image_range()]
                 edge1 = exp.scan.get_angle_from_image_index(edge1, deg=False)
-                edge1 += self._trim_scan_edges
+                edge1 += self._scan_margin
                 edge2 = exp.scan.get_angle_from_image_index(edge2, deg=False)
-                edge2 -= self._trim_scan_edges
+                edge2 -= self._scan_margin
                 passed3 = (edge1 <= phi) & (phi <= edge2)
 
                 # combine the last test only if there would be a reasonable number of
@@ -584,7 +577,7 @@ class ReflectionManager(object):
                 if to_update.count(True) < 40:
                     logger.warning(
                         "Too few reflections to trim centroids from the scan "
-                        "edges. Resetting trim_scan_edges=0.0"
+                        "edges. Resetting scan_margin=0.0"
                     )
                     to_update = tmp
 
@@ -688,23 +681,22 @@ class ReflectionManager(object):
             return
 
         msg = (
-            "\nSummary statistics for {} observations".format(nref)
-            + " matched to predictions:"
+            f"\nSummary statistics for {nref} observations" + " matched to predictions:"
         )
         header = ["", "Min", "Q1", "Med", "Q3", "Max"]
         rows = []
         row_data = five_number_summary(x_resid)
-        rows.append(["Xc - Xo (mm)"] + ["%.4g" % e for e in row_data])
+        rows.append(["Xc - Xo (mm)"] + [f"{e:.4g}" for e in row_data])
         row_data = five_number_summary(y_resid)
-        rows.append(["Yc - Yo (mm)"] + ["%.4g" % e for e in row_data])
+        rows.append(["Yc - Yo (mm)"] + [f"{e:.4g}" for e in row_data])
         row_data = five_number_summary(phi_resid)
-        rows.append(["Phic - Phio (deg)"] + ["%.4g" % (e * RAD2DEG) for e in row_data])
+        rows.append(["Phic - Phio (deg)"] + [f"{e * RAD2DEG:.4g}" for e in row_data])
         row_data = five_number_summary(w_x)
-        rows.append(["X weights"] + ["%.4g" % e for e in row_data])
+        rows.append(["X weights"] + [f"{e:.4g}" for e in row_data])
         row_data = five_number_summary(w_y)
-        rows.append(["Y weights"] + ["%.4g" % e for e in row_data])
+        rows.append(["Y weights"] + [f"{e:.4g}" for e in row_data])
         row_data = five_number_summary(w_phi)
-        rows.append(["Phi weights"] + ["%.4g" % (e * DEG2RAD ** 2) for e in row_data])
+        rows.append(["Phi weights"] + [f"{e * DEG2RAD ** 2:.4g}" for e in row_data])
 
         logger.info(msg)
         logger.info(dials.util.tabulate(rows, header, numalign="right") + "\n")
@@ -784,23 +776,22 @@ class StillsReflectionManager(ReflectionManager):
         header = ["", "Min", "Q1", "Med", "Q3", "Max"]
         rows = []
         row_data = five_number_summary(x_resid)
-        rows.append(["Xc - Xo (mm)"] + ["%.4g" % e for e in row_data])
+        rows.append(["Xc - Xo (mm)"] + [f"{e:.4g}" for e in row_data])
         row_data = five_number_summary(y_resid)
-        rows.append(["Yc - Yo (mm)"] + ["%.4g" % e for e in row_data])
+        rows.append(["Yc - Yo (mm)"] + [f"{e:.4g}" for e in row_data])
         row_data = five_number_summary(delpsi)
-        rows.append(["DeltaPsi (deg)"] + ["%.4g" % (e * RAD2DEG) for e in row_data])
+        rows.append(["DeltaPsi (deg)"] + [f"{e * RAD2DEG:.4g}" for e in row_data])
         row_data = five_number_summary(w_x)
-        rows.append(["X weights"] + ["%.4g" % e for e in row_data])
+        rows.append(["X weights"] + [f"{e:.4g}" for e in row_data])
         row_data = five_number_summary(w_y)
-        rows.append(["Y weights"] + ["%.4g" % e for e in row_data])
+        rows.append(["Y weights"] + [f"{e:.4g}" for e in row_data])
         row_data = five_number_summary(w_delpsi)
         rows.append(
-            ["DeltaPsi weights"] + ["%.4g" % (e * DEG2RAD ** 2) for e in row_data]
+            ["DeltaPsi weights"] + [f"{e * DEG2RAD ** 2:.4g}" for e in row_data]
         )
 
         msg = (
-            "\nSummary statistics for {} observations".format(nref)
-            + " matched to predictions:"
+            f"\nSummary statistics for {nref} observations" + " matched to predictions:"
         )
         logger.info(msg)
         logger.info(dials.util.tabulate(rows, header) + "\n")

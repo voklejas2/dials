@@ -1,10 +1,9 @@
-from __future__ import absolute_import, division, print_function
+import pickle
 
-import six
-from dials.util import show_mail_on_error
 from dxtbx.format.image import ImageBool
 from iotbx.phil import parse
-from six.moves import cPickle as pickle
+
+import dials.util
 
 help_message = """
 
@@ -41,7 +40,7 @@ phil_scope = parse(
 )
 
 
-class Script(object):
+class Script:
     """A class to encapsulate the script."""
 
     def __init__(self):
@@ -54,13 +53,13 @@ class Script(object):
             usage=usage, epilog=help_message, phil=phil_scope, read_experiments=True
         )
 
-    def run(self):
+    def run(self, args=None):
         """Run the script."""
-        from dials.util.options import flatten_experiments
         from dials.util import Sorry
+        from dials.util.options import flatten_experiments
 
         # Parse the command line arguments
-        params, options = self.parser.parse_args(show_diff_phil=True)
+        params, options = self.parser.parse_args(args, show_diff_phil=True)
         experiments = flatten_experiments(params.input.experiments)
 
         # Check that an experiment list and at least one mask file have been provided
@@ -85,19 +84,20 @@ class Script(object):
         for i, imageset in enumerate(imagesets):
             # Set the lookup
             with open(params.input.mask[i], "rb") as f:
-                if six.PY3:
-                    mask = pickle.load(f, encoding="bytes")
-                else:
-                    mask = pickle.load(f)
+                mask = pickle.load(f, encoding="bytes")
             imageset.external_lookup.mask.filename = params.input.mask[i]
             imageset.external_lookup.mask.data = ImageBool(mask)
 
         # Dump the experiments
-        print("Writing experiments to %s" % params.output.experiments)
+        print(f"Writing experiments to {params.output.experiments}")
         experiments.as_file(filename=params.output.experiments)
 
 
+@dials.util.show_mail_handle_errors()
+def run(args=None):
+    script = Script()
+    script.run(args)
+
+
 if __name__ == "__main__":
-    with show_mail_on_error():
-        script = Script()
-        script.run()
+    run()

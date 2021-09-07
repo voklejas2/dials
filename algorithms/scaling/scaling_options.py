@@ -1,11 +1,15 @@
 """
 Phil scope of options for scaling.
 """
-from __future__ import absolute_import, division, print_function
+
 import iotbx.phil
 
 phil_scope = iotbx.phil.parse(
     """
+  anomalous = False
+    .type = bool
+    .help = "Separate anomalous pairs in scaling and error model optimisation."
+    .expert_level=0
   overwrite_existing_models = False
     .type = bool
     .help = "If True, create new scaling models for all datasets"
@@ -68,6 +72,7 @@ phil_scope = iotbx.phil.parse(
               "to determine the scaling model and error model."
       .expert_level = 2
     intensity_choice = profile sum *combine
+      .alias = intensity
       .type = choice
       .help = "Option to choose from profile fitted or summation intensities, or
                an optimised combination of profile/sum."
@@ -189,6 +194,10 @@ phil_scope = iotbx.phil.parse(
       .help = "Cutoff z-score value for identifying outliers based on their
                normalised deviation within the group of equivalent reflections"
       .expert_level = 1
+    emax = 10
+      .type = float(value_min = 0)
+      .help = "Reject reflections with normalised intensities E^2 > emax^2"
+      .expert_level = 2
   }
   """
 )

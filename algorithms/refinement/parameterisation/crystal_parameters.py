@@ -1,18 +1,18 @@
-from __future__ import absolute_import, division, print_function
 import logging
 
 logger = logging.getLogger(__name__)
 
-from dials.algorithms.refinement.parameterisation.model_parameters import (
-    Parameter,
-    ModelParameterisation,
-)
-from scitbx import matrix
 from rstbx.symmetry.constraints.parameter_reduction import symmetrize_reduce_enlarge
+from scitbx import matrix
+
+from dials.algorithms.refinement.parameterisation.model_parameters import (
+    ModelParameterisation,
+    Parameter,
+)
 from dials.algorithms.refinement.refinement_helpers import CrystalOrientationCompose
 
 
-class CrystalOrientationMixin(object):
+class CrystalOrientationMixin:
     """Mix-in class defining some functionality unique to crystal orientation
     parameterisations that can be shared by static and scan-varying versions"""
 
@@ -103,7 +103,7 @@ class CrystalOrientationParameterisation(
         return matrix.sqr(self._model.get_U())
 
 
-class CrystalUnitCellMixin(object):
+class CrystalUnitCellMixin:
     """Mix-in class defining some functionality unique to crystal unit cell
     parameterisations that can be shared by static and scan-varying versions"""
 
@@ -138,7 +138,7 @@ class CrystalUnitCellMixin(object):
 
             # write original error to debug log
             logger.debug("Unable to compose the crystal model")
-            logger.debug("Original error message: {}".format(str(e)))
+            logger.debug("Original error message: %s", str(e))
             logger.debug("Failing now.")
             raise RuntimeError(
                 "Unable to compose the crystal model. Please check that the "

@@ -1,30 +1,26 @@
-# coding: utf-8
 """Methods for symmetry determination.
 
 This module provides a base class for symmetry determination algorithms.
 """
-from __future__ import absolute_import, division, print_function
 
 import logging
 
 logger = logging.getLogger(__name__)
 
-from six.moves import cStringIO as StringIO
+from io import StringIO
 
 import libtbx
-from scitbx.array_family import flex
-from cctbx import adptbx
-from cctbx import sgtbx
-from cctbx import uctbx
+from cctbx import adptbx, sgtbx, uctbx
 from cctbx.sgtbx.lattice_symmetry import metric_subgroups
 from mmtbx import scaling
-from mmtbx.scaling import absolute_scaling
-from mmtbx.scaling import matthews
+from mmtbx.scaling import absolute_scaling, matthews
+from scitbx.array_family import flex
 
-from dials.util.resolutionizer import Resolutionizer, phil_defaults
+from dials.util import resolution_analysis
+from dials.util.normalisation import quasi_normalisation
 
 
-class symmetry_base(object):
+class symmetry_base:
     """Base class for symmetry analysis."""
 
     def __init__(
@@ -39,11 +35,11 @@ class symmetry_base(object):
         absolute_angle_tolerance=None,
         best_monoclinic_beta=True,
     ):
-        u"""Initialise a symmetry_base object.
+        """Initialise a symmetry_base object.
 
         Args:
           intensities (cctbx.miller.array): The intensities on which to perform
-            symmetry anaylsis.
+            symmetry analysis.
           normalisation (str): The normalisation method to use. Possible choices are
             'kernel', 'quasi', 'ml_iso' and 'ml_aniso'. Set to None to switch off
             normalisation altogether.
@@ -53,7 +49,7 @@ class symmetry_base(object):
             intensities. If set to :data:`libtbx.Auto` then d_min will be
             automatically determined according to the parameters
             ``min_i_mean_over_sigma_mean`` and ``min_cc_half``.
-          min_i_mean_over_sigma_mean (float): minimum value of |I|/|sigma(I)| for
+          min_i_mean_over_sigma_mean (float): minimum value of :math:`|I|/|sigma(I)|` for
             automatic determination of resolution cutoff.
           min_cc_half (float): minimum value of CC½ for automatic determination of
             resolution cutoff.
@@ -62,7 +58,7 @@ class symmetry_base(object):
           absolute_angle_tolerance (float): Absolute angle tolerance in checking
             consistency of input unit cells against the median unit cell.
           best_monoclinic_beta (bool): If True, then for monoclinic centered cells, I2
-            will be preferred over C2 if it gives a more oblique cell (i.e. smaller
+            will be preferred over C2 if it gives a less oblique cell (i.e. smaller
             beta angle).
         """
         self.input_intensities = intensities
@@ -115,7 +111,7 @@ class symmetry_base(object):
         self.patterson_group = (
             self.lattice_group.build_derived_patterson_group().make_tidy()
         )
-        logger.info("Patterson group: %s" % self.patterson_group.info())
+        logger.info("Patterson group: %s", self.patterson_group.info())
 
         sel = self.patterson_group.epsilon(self.intensities.indices()) == 1
         self.intensities = self.intensities.select(sel)
@@ -140,8 +136,8 @@ class symmetry_base(object):
                     absolute_angle_tolerance,
                 ):
                     raise ValueError(
-                        "Incompatible unit cell: %s\n" % d.unit_cell()
-                        + "      median unit cell: %s" % self.median_unit_cell
+                        f"Incompatible unit cell: {d.unit_cell()}\n"
+                        + f"      median unit cell: {self.median_unit_cell}"
                     )
 
     def _normalise(self, method):
@@ -150,7 +146,7 @@ class symmetry_base(object):
         elif method == "kernel":
             normalise = self.kernel_normalisation
         elif method == "quasi":
-            normalise = self.quasi_normalisation
+            normalise = quasi_normalisation
         elif method == "ml_iso":
             normalise = self.ml_iso_normalisation
         elif method == "ml_aniso":
@@ -158,14 +154,27 @@ class symmetry_base(object):
 
         for i in range(int(flex.max(self.dataset_ids) + 1)):
             logger.info("\n" + "-" * 80 + "\n")
-            logger.info("Normalising intensities for dataset %i\n" % (i + 1))
+            logger.info("Normalising intensities for dataset %i\n", i + 1)
             intensities = self.intensities.select(self.dataset_ids == i)
-            if i == 0:
-                normalised_intensities = normalise(intensities)
-            else:
-                normalised_intensities = normalised_intensities.concatenate(
-                    normalise(intensities)
+            try:
+                intensities = normalise(intensities)
+            # Catch any of the several errors that can occur when there are too few
+            # reflections for the selected normalisation routine.
+            except (AttributeError, IndexError, RuntimeError):
+                logger.warning(
+                    "A problem occurred when trying to normalise the intensities by "
+                    "the %s method.\n"
+                    "There may be too few unique reflections. Resorting to using "
+                    "un-normalised intensities instead.",
+                    method,
+                    exc_info=True,
                 )
+                return
+            if i == 0:
+                normalised_intensities = intensities
+            else:
+                normalised_intensities = normalised_intensities.concatenate(intensities)
+
         self.intensities = normalised_intensities.set_info(
             self.intensities.info()
         ).set_observation_type_xray_intensity()
@@ -196,36 +205,6 @@ class symmetry_base(object):
             intensities, auto_kernel=True
         )
         return normalisation.normalised_miller.deep_copy().set_info(intensities.info())
-
-    @staticmethod
-    def quasi_normalisation(intensities):
-        """Quasi-normalisation of the input intensities.
-
-        Args:
-          intensities (cctbx.miller.array): The intensities to be normalised.
-
-        Returns:
-          cctbx.miller.array: The normalised intensities.
-        """
-        # handle negative reflections to minimise effect on mean I values.
-        intensities.data().set_selected(intensities.data() < 0.0, 0.0)
-
-        # set up binning objects
-        if intensities.size() > 20000:
-            n_refl_shells = 20
-        elif intensities.size() > 15000:
-            n_refl_shells = 15
-        else:
-            n_refl_shells = 10
-        d_star_sq = intensities.d_star_sq().data()
-        step = (flex.max(d_star_sq) - flex.min(d_star_sq) + 1e-8) / n_refl_shells
-        intensities.setup_binner_d_star_sq_step(d_star_sq_step=step)
-
-        normalisations = intensities.intensity_quasi_normalisations()
-        return intensities.customized_copy(
-            data=(intensities.data() / normalisations.data()),
-            sigmas=(intensities.sigmas() / normalisations.data()),
-        )
 
     @staticmethod
     def ml_aniso_normalisation(intensities):
@@ -279,14 +258,19 @@ class symmetry_base(object):
                 """\
   %5.2f, %5.2f, %5.2f
   %12.2f, %5.2f
-  %19.2f"""
-                % (b_cart[0], b_cart[3], b_cart[4], b_cart[1], b_cart[5], b_cart[2])
+  %19.2f""",
+                b_cart[0],
+                b_cart[3],
+                b_cart[4],
+                b_cart[1],
+                b_cart[5],
+                b_cart[2],
             )
         else:
             logger.info("ML estimate of overall B value:")
-            logger.info("   %5.2f A**2" % normalisation.b_wilson)
+            logger.info("   %5.2f A**2", normalisation.b_wilson)
         logger.info("ML estimate of  -log of scale factor:")
-        logger.info("  %5.2f" % (normalisation.p_scale))
+        logger.info("  %5.2f", normalisation.p_scale)
 
         s = StringIO()
         mr.show(out=s)
@@ -320,7 +304,10 @@ class symmetry_base(object):
             d_min = resolution_filter_from_array(
                 self.intensities, min_i_mean_over_sigma_mean, min_cc_half
             )
-            logger.info("High resolution limit set to: %.2f", d_min)
+            if d_min is not None:
+                logger.info("High resolution limit set to: %.2f", d_min)
+            else:
+                logger.info("High resolution limit set to: None")
         if d_min is not None:
             sel = self.intensities.resolution_filter_selection(d_min=d_min)
             self.intensities = self.intensities.select(sel).set_info(
@@ -334,10 +321,8 @@ class symmetry_base(object):
 
 def resolution_filter_from_array(intensities, min_i_mean_over_sigma_mean, min_cc_half):
     """Run the resolution filter using miller array data format."""
-    rparams = phil_defaults.extract().resolutionizer
-    rparams.nbins = 20
-    rparams.plot = False
-    resolutionizer = Resolutionizer(intensities, rparams)
+    rparams = resolution_analysis.phil_defaults.extract().resolution
+    resolutionizer = resolution_analysis.Resolutionizer(intensities, rparams)
     return _resolution_filter(resolutionizer, min_i_mean_over_sigma_mean, min_cc_half)
 
 
@@ -345,11 +330,11 @@ def resolution_filter_from_reflections_experiments(
     reflections, experiments, min_i_mean_over_sigma_mean, min_cc_half
 ):
     """Run the resolution filter using native dials data formats."""
-    rparams = phil_defaults.extract().resolutionizer
-    rparams.nbins = 20
-    rparams.plot = False
-    resolutionizer = Resolutionizer.from_reflections_and_experiments(
-        reflections, experiments, rparams
+    rparams = resolution_analysis.phil_defaults.extract().resolution
+    resolutionizer = (
+        resolution_analysis.Resolutionizer.from_reflections_and_experiments(
+            reflections, experiments, rparams
+        )
     )
     return _resolution_filter(resolutionizer, min_i_mean_over_sigma_mean, min_cc_half)
 
@@ -360,29 +345,35 @@ def _resolution_filter(resolutionizer, min_i_mean_over_sigma_mean, min_cc_half):
     d_min_cc_half = 0
     if min_i_mean_over_sigma_mean is not None:
         try:
-            d_min_isigi = resolutionizer.resolution_i_mean_over_sigma_mean(
-                min_i_mean_over_sigma_mean
-            )
+            d_min_isigi = resolutionizer.resolution(
+                resolution_analysis.metrics.I_MEAN_OVER_SIGMA_MEAN,
+                limit=min_i_mean_over_sigma_mean,
+            ).d_min
         except RuntimeError as e:
-            logger.info(u"I/σ(I) resolution filter failed with the following error:")
+            logger.info("I/σ(I) resolution filter failed with the following error:")
             logger.error(e)
         else:
-            logger.info(
-                u"Resolution estimate from <I>/<σ(I)> > %.1f : %.2f",
-                min_i_mean_over_sigma_mean,
-                d_min_isigi,
-            )
+            if d_min_isigi:
+                logger.info(
+                    "Resolution estimate from <I>/<σ(I)> > %.1f : %.2f",
+                    min_i_mean_over_sigma_mean,
+                    d_min_isigi,
+                )
     if min_cc_half is not None:
         try:
-            d_min_cc_half = resolutionizer.resolution_cc_half(min_cc_half)
+            d_min_cc_half = resolutionizer.resolution(
+                resolution_analysis.metrics.CC_HALF, limit=min_cc_half
+            ).d_min
         except RuntimeError as e:
-            logger.info(u"CC½ resolution filter failed with the following error:")
+            logger.info("CC½ resolution filter failed with the following error:")
             logger.error(e)
         else:
-            logger.info(
-                u"Resolution estimate from CC½ > %.2f: %.2f", min_cc_half, d_min_cc_half
-            )
-    valid_d_mins = list({d_min_cc_half, d_min_isigi}.difference({0}))
-    if valid_d_mins:
-        d_min = min(valid_d_mins)
-    return d_min
+            if d_min_cc_half:
+                logger.info(
+                    "Resolution estimate from CC½ > %.2f: %.2f",
+                    min_cc_half,
+                    d_min_cc_half,
+                )
+    valid = [d for d in (d_min_cc_half, d_min_isigi) if d]
+    if valid:
+        return min(valid)

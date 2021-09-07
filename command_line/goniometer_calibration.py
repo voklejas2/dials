@@ -1,9 +1,7 @@
-from __future__ import absolute_import, division, print_function
-
-import sys
-
 import iotbx.phil
 from scitbx import matrix
+
+import dials.util
 
 help_message = """
 dials.goniometer_calibration is a tool to aid calibration of multi-axis
@@ -40,9 +38,9 @@ output {
 )
 
 
-def run(args):
-    from dials.util.options import OptionParser
-    from dials.util.options import flatten_experiments
+@dials.util.show_mail_handle_errors()
+def run(args=None):
+    from dials.util.options import OptionParser, flatten_experiments
 
     usage = "dials.goniometer_calibration [options] models.expt"
 
@@ -54,7 +52,7 @@ def run(args):
         epilog=help_message,
     )
 
-    params, options = parser.parse_args(show_diff_phil=True)
+    params, options = parser.parse_args(args, show_diff_phil=True)
     if not params.use_space_group_from_experiments and params.space_group is None:
         parser.print_help()
         return
@@ -125,9 +123,9 @@ def run(args):
                 "rotation",
                 "goniometer",
                 depends_on,
-                "%.4f" % axis[0],
-                "%.4f" % axis[1],
-                "%.4f" % axis[2],
+                f"{axis[0]:.4f}",
+                f"{axis[1]:.4f}",
+                f"{axis[2]:.4f}",
                 ".",
                 ".",
                 ".",
@@ -138,8 +136,8 @@ def run(args):
     print("Goniometer axes and angles (ImgCIF coordinate system):")
     for axis, angle, name in zip(axes, angles, axis_names):
         print(
-            "%s: " % name,
-            "rotation of %.3f degrees" % angle,
+            f"{name}: ",
+            f"rotation of {angle:.3f} degrees",
             "about axis (%.5f,%.5f,%.5f)" % axis,
         )
 
@@ -147,8 +145,8 @@ def run(args):
     print("Goniometer axes and angles (MOSFLM coordinate system):")
     for axis, angle, name in zip(axes, angles, axis_names):
         print(
-            "%s: " % name,
-            "rotation of %.3f degrees" % angle,
+            f"{name}: ",
+            f"rotation of {angle:.3f} degrees",
             "about axis (%.5f,%.5f,%.5f)" % (R_to_mosflm * matrix.col(axis)).elems,
         )
 
@@ -198,4 +196,4 @@ def write_xoalign_config(file_name, axes, names):
 
 
 if __name__ == "__main__":
-    run(sys.argv[1:])
+    run()

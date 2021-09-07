@@ -1,25 +1,22 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
 import math
+import pickle
 
 import psutil
 
 from libtbx import Auto
 
 import dials.algorithms.integration
-from dials.algorithms.integration.processor import execute_parallel_task
-from dials.algorithms.integration.processor import NullTask
+from dials.algorithms.integration.processor import NullTask, execute_parallel_task
 from dials.array_family import flex
 from dials.util import tabulate
 from dials.util.mp import multi_node_parallel_map
 
 # Need this import first because loads extension that parallel_integrator_ext
 # relies on - it assumes the binding for EmpiricalProfileModeller exists
-import dials.algorithms.profile_model.modeller  # noqa: F401
+import dials.algorithms.profile_model.modeller  # noqa: F401 # isort: split
 
 from dials_algorithms_integration_parallel_integrator_ext import (
-    Logger,
     GaussianRSIntensityCalculator,
     GaussianRSMaskCalculator,
     GaussianRSMultiCrystalMaskCalculator,
@@ -27,6 +24,7 @@ from dials_algorithms_integration_parallel_integrator_ext import (
     GaussianRSReferenceCalculator,
     GaussianRSReferenceProfileData,
     GLMBackgroundCalculator,
+    Logger,
     MultiThreadedIntegrator,
     MultiThreadedReferenceProfiler,
     ReferenceProfileData,
@@ -65,7 +63,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-class MaskCalculatorFactory(object):
+class MaskCalculatorFactory:
     """
     A factory function to return a mask calculator object
     """
@@ -96,7 +94,7 @@ class MaskCalculatorFactory(object):
         return algorithm
 
 
-class BackgroundCalculatorFactory(object):
+class BackgroundCalculatorFactory:
     """
     A factory function to return a background calculator object
     """
@@ -106,14 +104,14 @@ class BackgroundCalculatorFactory(object):
         """
         Select the background calculator
         """
-        from dials.algorithms.background.simple.algorithm import (
-            SimpleBackgroundCalculatorFactory,
-        )
         from dials.algorithms.background.glm.algorithm import (
             GLMBackgroundCalculatorFactory,
         )
         from dials.algorithms.background.gmodel.algorithm import (
             GModelBackgroundCalculatorFactory,
+        )
+        from dials.algorithms.background.simple.algorithm import (
+            SimpleBackgroundCalculatorFactory,
         )
 
         # Get the parameters
@@ -190,7 +188,7 @@ class BackgroundCalculatorFactory(object):
         return algorithm
 
 
-class IntensityCalculatorFactory(object):
+class IntensityCalculatorFactory:
     """
     A factory function to return an intensity calculator object
     """
@@ -223,7 +221,7 @@ class IntensityCalculatorFactory(object):
             elif params.fit_method == "detector_space":
                 detector_space = True
             else:
-                raise RuntimeError("Unknown fit method: %s" % params.fit_method)
+                raise RuntimeError(f"Unknown fit method: {params.fit_method}")
 
             # Create the algorithm
             algorithm = GaussianRSIntensityCalculatorFactory.create(
@@ -239,7 +237,7 @@ class IntensityCalculatorFactory(object):
         return algorithm
 
 
-class ReferenceCalculatorFactory(object):
+class ReferenceCalculatorFactory:
     """
     A factory function to return an reference calculator object
     """
@@ -294,27 +292,21 @@ def _assert_enough_memory(required_memory, max_memory_usage):
     limit_memory = total_memory * max_memory_usage
     if required_memory > limit_memory:
         raise RuntimeError(
-            """
+            f"""
     There was a problem allocating memory for image data. Possible solutions
     include increasing the percentage of memory allowed for shoeboxes or
     decreasing the block size. This could also be caused by a highly mosaic
     crystal model - is your crystal really this mosaic?
-      Total system memory: %.1f GB
-      Limit image memory: %.1f GB
-      Required image memory: %.1f GB
+      Total system memory: {total_memory / 1000000000.0:.1f} GB
+      Limit image memory: {limit_memory / 1000000000.0:.1f} GB
+      Required image memory: {required_memory / 1000000000.0:.1f} GB
     """
-            % (total_memory / 1e9, limit_memory / 1e9, required_memory / 1e9)
         )
     else:
-        logger.info("")
-        logger.info(" Memory usage:")
-        logger.info("  Total system memory: %g GB" % (total_memory / 1e9))
-        logger.info("  Limit image memory: %g GB" % (limit_memory / 1e9))
-        logger.info("  Required image memory: %g GB" % (required_memory / 1e9))
-        logger.info("")
+        logger.info("Allocating %.1f MB memory", required_memory / 1e6)
 
 
-class IntegrationJob(object):
+class IntegrationJob:
     """
     A class to represent an integration job
     """
@@ -442,16 +434,16 @@ class IntegrationJob(object):
         frame0, frame1 = imageset.get_scan().get_array_range()
 
         # Write some output
-        logger.info(" Beginning integration job %d" % self.index)
+        logger.info(" Beginning integration job %d", self.index)
         logger.info("")
-        logger.info(" Frames: %d -> %d" % (frame0, frame1))
+        logger.info(" Frames: %d -> %d", frame0, frame1)
         logger.info("")
         logger.info(" Number of reflections")
-        logger.info("  Partial:     %d" % npart)
-        logger.info("  Full:        %d" % nfull)
-        logger.info("  In ice ring: %d" % nice)
-        logger.info("  Integrate:   %d" % nint)
-        logger.info("  Total:       %d" % ntot)
+        logger.info("  Partial:     %d", npart)
+        logger.info("  Full:        %d", nfull)
+        logger.info("  In ice ring: %d", nice)
+        logger.info("  Integrate:   %d", nint)
+        logger.info("  Total:       %d", ntot)
         logger.info("")
 
         # Print a histogram of reflections on frames
@@ -522,7 +514,7 @@ class IntegrationJob(object):
             del self.reflections["shoebox"]
 
 
-class IntegrationManager(object):
+class IntegrationManager:
     """
     A class to manage processing book-keeping
     """
@@ -571,11 +563,6 @@ class IntegrationManager(object):
         self.manager = SimpleReflectionManager(
             self.blocks, self.reflections, self.params.integration.mp.njobs
         )
-
-        # Parallel reading of HDF5 from the same handle is not allowed. Python
-        # multiprocessing is a bit messed up and used fork on linux so need to
-        # close and reopen file.
-        self.experiments.nullify_all_single_file_reader_format_instances()
 
     def task(self, index):
         """
@@ -694,7 +681,7 @@ class IntegrationManager(object):
             elif block.units == "frames":
                 block_size = int(math.ceil(block.size))
             else:
-                raise RuntimeError("Unknown block_size unit %r" % block.units)
+                raise RuntimeError(f"Unknown block_size unit {block.units!r}")
             if block_size > max_block_size:
                 raise RuntimeError(
                     """
@@ -771,7 +758,7 @@ class IntegrationManager(object):
         return fmt % (block_size, self.params.integration.block.units, task_table)
 
 
-class ReferenceCalculatorJob(object):
+class ReferenceCalculatorJob:
     """
     A class to represent an integration job
     """
@@ -895,16 +882,16 @@ class ReferenceCalculatorJob(object):
         frame0, frame1 = imageset.get_scan().get_array_range()
 
         # Write some output
-        logger.info(" Beginning integration job %d" % self.index)
+        logger.info(" Beginning integration job %d", self.index)
         logger.info("")
-        logger.info(" Frames: %d -> %d" % (frame0, frame1))
+        logger.info(" Frames: %d -> %d", frame0, frame1)
         logger.info("")
         logger.info(" Number of reflections")
-        logger.info("  Partial:     %d" % npart)
-        logger.info("  Full:        %d" % nfull)
-        logger.info("  In ice ring: %d" % nice)
-        logger.info("  Integrate:   %d" % nint)
-        logger.info("  Total:       %d" % ntot)
+        logger.info("  Partial:     %d", npart)
+        logger.info("  Full:        %d", nfull)
+        logger.info("  In ice ring: %d", nice)
+        logger.info("  Integrate:   %d", nint)
+        logger.info("  Total:       %d", ntot)
         logger.info("")
 
         # Print a histogram of reflections on frames
@@ -965,7 +952,7 @@ class ReferenceCalculatorJob(object):
         n_tot = dont_integrate.count(False)
         n_mod = (used_in_modelling & ~dont_integrate).count(True)
         logger.info("")
-        logger.info(fmt % (n_mod, n_tot))
+        logger.info(fmt, n_mod, n_tot)
 
     def write_debug_files(self):
         """
@@ -991,7 +978,7 @@ class ReferenceCalculatorJob(object):
             del self.reflections["shoebox"]
 
 
-class ReferenceCalculatorManager(object):
+class ReferenceCalculatorManager:
     """
     A class to manage processing book-keeping
     """
@@ -1045,11 +1032,6 @@ class ReferenceCalculatorManager(object):
         self.manager = SimpleReflectionManager(
             self.blocks, self.reflections, self.params.integration.mp.njobs
         )
-
-        # Parallel reading of HDF5 from the same handle is not allowed. Python
-        # multiprocessing is a bit messed up and used fork on linux so need to
-        # close and reopen file.
-        self.experiments.nullify_all_single_file_reader_format_instances()
 
     def task(self, index):
         """
@@ -1170,7 +1152,7 @@ class ReferenceCalculatorManager(object):
             elif block.units == "frames":
                 block_size = int(math.ceil(block.size))
             else:
-                raise RuntimeError("Unknown block_size unit %r" % block.units)
+                raise RuntimeError(f"Unknown block_size unit {block.units!r}")
             if block_size > max_block_size:
                 raise RuntimeError(
                     """
@@ -1252,7 +1234,7 @@ def compute_required_memory(imageset, block_size):
     return MultiThreadedIntegrator.compute_required_memory(imageset, block_size)
 
 
-class ReferenceCalculatorProcessor(object):
+class ReferenceCalculatorProcessor:
     def __init__(self, experiments, reflections, params=None):
         from dials.util import pprint
 
@@ -1278,8 +1260,6 @@ class ReferenceCalculatorProcessor(object):
                 for message in result[1]:
                     logger.log(message.levelno, message.msg)
                 reference_manager.accumulate(result[0])
-                result[0].reflections = None
-                result[0].data = None
 
             multi_node_parallel_map(
                 func=execute_parallel_task,
@@ -1289,7 +1269,6 @@ class ReferenceCalculatorProcessor(object):
                 callback=process_output,
                 cluster_method=params.integration.mp.method,
                 preserve_order=True,
-                preserve_exception_message=True,
             )
         else:
             for task in reference_manager.tasks():
@@ -1306,19 +1285,17 @@ class ReferenceCalculatorProcessor(object):
         # Write the profiles to file
         if params.integration.debug.reference.output:
             with open(params.integration.debug.reference.filename, "wb") as outfile:
-                import six.moves.cPickle as pickle
-
                 pickle.dump(self._profiles, outfile)
 
         # Print the profiles to the debug log
         for i in range(len(self._profiles)):
             logger.debug("")
-            logger.debug("Reference Profiles for experiment %d" % i)
+            logger.debug("Reference Profiles for experiment %d", i)
             logger.debug("")
             reference = self._profiles[i].reference()
             for j in range(len(reference)):
                 data = reference.data(j)
-                logger.debug("Profile %d" % j)
+                logger.debug("Profile %d", j)
                 if len(data) > 0:
                     logger.debug(pprint.profile3d(data))
                 else:
@@ -1331,7 +1308,7 @@ class ReferenceCalculatorProcessor(object):
         return self._profiles
 
 
-class IntegratorProcessor(object):
+class IntegratorProcessor:
     def __init__(self, experiments, reflections, reference=None, params=None):
 
         # Create the reference manager
@@ -1358,8 +1335,6 @@ class IntegratorProcessor(object):
                 for message in result[1]:
                     logger.log(message.levelno, message.msg)
                 integration_manager.accumulate(result[0])
-                result[0].reflections = None
-                result[0].data = None
 
             multi_node_parallel_map(
                 func=execute_parallel_task,
@@ -1369,7 +1344,6 @@ class IntegratorProcessor(object):
                 callback=process_output,
                 cluster_method=params.integration.mp.method,
                 preserve_order=True,
-                preserve_exception_message=True,
             )
         else:
             for task in integration_manager.tasks():

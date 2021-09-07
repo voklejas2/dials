@@ -1,11 +1,9 @@
-# coding: utf-8
-
-from __future__ import absolute_import, division, print_function
 from collections import OrderedDict
 
 from scitbx.array_family import flex
-from dials.util.observer import Observer, singleton
+
 from dials.algorithms.clustering import plots
+from dials.util.observer import Observer, singleton
 
 
 def uc_params_from_experiments(experiments):
@@ -45,6 +43,15 @@ class UnitCellAnalysisObserver(Observer):
                 title="Unit cell clustering",
                 xtitle="Dataset",
                 ytitle=r"Distance (Å<sup>2</sup>)",
+                help="""\
+The results of single-linkage hierarchical clustering on the unit cell parameters using
+the Andrews-Bernstein NCDist distance metric (Andrews & Bernstein, 2014). The height at
+which two clusters are merged in the dendrogram is a measure of the similarity between
+the unit cells in each cluster. A larger separation between two clusters may be
+indicative of a higher degree of non-isomorphism between the clusters. Conversely, a
+small separation between two clusters suggests that their unit cell parameters are
+relatively isomorphous.
+""",
             )
 
         graphs = {"unit_cell_graphs": d}

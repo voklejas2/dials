@@ -1,18 +1,20 @@
 # LIBTBX_PRE_DISPATCHER_INCLUDE_SH export PHENIX_GUI_ENVIRONMENT=1
 # DIALS_ENABLE_COMMAND_LINE_COMPLETION
-from __future__ import absolute_import, division, print_function
 
 import copy
+import sys
 
-import libtbx.phil
+import wx
+
 import gltbx
 import gltbx.gl as gl
-import wx
+import libtbx.phil
 import wxtbx.utils
-from dials.util import wx_viewer
 from dxtbx.model import MultiAxisGoniometer
-from scitbx.math import minimum_covering_sphere
 from scitbx.array_family import flex
+from scitbx.math import minimum_covering_sphere
+
+from dials.util import show_mail_handle_errors, wx_viewer
 
 help_message = """
 """
@@ -56,7 +58,7 @@ def settings():
     return phil_scope.fetch().extract()
 
 
-class render_3d(object):
+class render_3d:
     def __init__(self):
         self.goniometer_orig = None
         self.crystal = None
@@ -88,6 +90,7 @@ class render_3d(object):
         distance = self.settings.detector_distance
         if distance:
             import math
+
             from scitbx import matrix
 
             p_id = detector.get_panel_intersection(beam.get_s0())
@@ -367,7 +370,7 @@ class settings_window(wxtbx.utils.SettingsPanel):
                     ctrl.SetBackgroundColour(self.GetBackgroundColour())
                 box = wx.BoxSizer(wx.HORIZONTAL)
                 self.panel_sizer.Add(box)
-                label = wx.StaticText(self, -1, "%s angle" % name)
+                label = wx.StaticText(self, -1, f"{name} angle")
                 box.Add(ctrl, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
                 box.Add(label, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
                 self.Bind(floatspin.EVT_FLOATSPIN, self.OnChangeSettings, ctrl)
@@ -382,7 +385,7 @@ class settings_window(wxtbx.utils.SettingsPanel):
 
 class GeometryWindow(wx_viewer.show_points_and_lines_mixin):
     def __init__(self, settings, *args, **kwds):
-        super(GeometryWindow, self).__init__(*args, **kwds)
+        super().__init__(*args, **kwds)
         self.settings = settings
         self.points = flex.vec3_double()
         self.colors = None
@@ -557,27 +560,24 @@ class GeometryWindow(wx_viewer.show_points_and_lines_mixin):
         gltbx.fonts.ucs_bitmap_8x13.render_string(label)
 
     def rotate_view(self, x1, y1, x2, y2, shift_down=False, scale=0.1):
-        super(GeometryWindow, self).rotate_view(
-            x1, y1, x2, y2, shift_down=shift_down, scale=scale
-        )
+        super().rotate_view(x1, y1, x2, y2, shift_down=shift_down, scale=scale)
 
     def OnLeftUp(self, event):
         self.was_dragged = True
-        super(GeometryWindow, self).OnLeftUp(event)
+        super().OnLeftUp(event)
 
     def initialize_modelview(self, eye_vector=None, angle=None):
-        super(GeometryWindow, self).initialize_modelview(
-            eye_vector=eye_vector, angle=angle
-        )
+        super().initialize_modelview(eye_vector=eye_vector, angle=angle)
         self.rotation_center = (0, 0, 0)
         self.move_to_center_of_viewport(self.rotation_center)
 
 
-def run(args):
+@show_mail_handle_errors()
+def run(args=None):
 
-    from dials.util.options import OptionParser
-    from dials.util.options import flatten_experiments
     import os
+
+    from dials.util.options import OptionParser, flatten_experiments
 
     usage = "dials.geometry_viewer [options] models.expt"
 
@@ -589,7 +589,7 @@ def run(args):
         epilog=help_message,
     )
 
-    params, options = parser.parse_args(quick_parse=True, show_diff_phil=True)
+    params, options = parser.parse_args(args, quick_parse=True, show_diff_phil=True)
 
     if "DIALS_EXPORT_DO_NOT_CHECK_FORMAT" in os.environ:
         print(
@@ -668,6 +668,4 @@ def run(args):
 
 
 if __name__ == "__main__":
-    import sys
-
-    run(sys.argv[1:])
+    run()

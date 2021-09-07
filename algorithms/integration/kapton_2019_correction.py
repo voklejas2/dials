@@ -1,18 +1,17 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
 import math
 
-from dials.array_family import flex
+from scitbx.matrix import col
+
 from dials.algorithms.integration.kapton_correction import get_absorption_correction
 from dials.algorithms.shoebox import MaskCode
-from scitbx.matrix import col
+from dials.array_family import flex
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
 
 
-class KaptonTape_2019(object):
+class KaptonTape_2019:
     """Class for defining Kapton tape using dxtbx models and finding the path through the tape traversed by s1 vector"""
 
     def __init__(
@@ -47,7 +46,7 @@ class KaptonTape_2019(object):
             p.set_pixel_size((pixel_size, pixel_size))
             p.set_image_size(image_size)
             p.set_trusted_range((-1, 2e6))
-            p.set_name("KAPTON_%s" % name)
+            p.set_name(f"KAPTON_{name}")
             return d
 
         # Set up the bounding box of the kapton
@@ -138,8 +137,8 @@ class KaptonTape_2019(object):
         self.faces = faces
 
     def get_kapton_path_mm(self, s1):
-        """ Get kapton path length traversed by an s1 vecto. If no kapton intersection or just touches the edge,
-            then None is returned"""
+        """Get kapton path length traversed by an s1 vecto. If no kapton intersection or just touches the edge,
+        then None is returned"""
         intersection_points = []
         # determine path length through kapton tape
         for face in self.faces:
@@ -189,13 +188,14 @@ class KaptonTape_2019(object):
         return absorption_correction
 
     def abs_correction_flex(self, s1_flex):
-        """ Compute the absorption correction using beers law. Takes in a flex array of s1 vectors, determines path lengths for each
-            and then determines absorption correction for each s1 vector """
+        """Compute the absorption correction using beers law. Takes in a flex array of s1 vectors, determines path lengths for each
+        and then determines absorption correction for each s1 vector"""
         kapton_faces = self.faces
         from dials.algorithms.integration import get_kapton_path_cpp
 
         # new style, much faster
-        kapton_path_mm = get_kapton_path_cpp(kapton_faces, s1_flex)
+        # Note, the last two faces should never be hit by a photon so don't need to check them
+        kapton_path_mm = get_kapton_path_cpp(kapton_faces[:4], s1_flex)
         # old style, really slow
         # for s1 in s1_flex:
         #  kapton_path_mm.append(self.get_kapton_path_mm(s1))
@@ -207,8 +207,8 @@ class KaptonTape_2019(object):
         return absorption_correction
 
     def distance_of_point_from_line(self, r0, r1, r2):
-        """ Evaluates distance between point and a line between two points
-            Note that implementation ignores z dimension"""
+        """Evaluates distance between point and a line between two points
+        Note that implementation ignores z dimension"""
         x0, y0, z0 = r0
         x1, y1, z1 = r1
         x2, y2, z2 = r2
@@ -404,7 +404,7 @@ class KaptonTape_2019(object):
         ]
 
 
-class image_kapton_correction(object):
+class image_kapton_correction:
     def __init__(
         self,
         panel_size_px=None,  #
@@ -558,7 +558,7 @@ class image_kapton_correction(object):
         return corrections, sigmas
 
 
-class multi_kapton_correction(object):
+class multi_kapton_correction:
     def __init__(self, experiments, integrated, kapton_params, logger=None):
         self.experiments = experiments
         self.reflections = integrated
@@ -572,7 +572,7 @@ class multi_kapton_correction(object):
         ):
             # extract experiment details
             detector = expt.detector
-            panels = [p for p in detector]
+            panels = list(detector)
             panel_size_px = [p.get_image_size() for p in panels]
             pixel_size_mm = [p.get_pixel_size()[0] for p in panels]
             detector_dist_mm = [p.get_distance() for p in panels]
@@ -628,7 +628,7 @@ class multi_kapton_correction(object):
             if len(refl_zero) > 0 and self.params.smart_sigmas:
                 # process nonzero intensity reflections with smart sigmas as requested
                 # but turn them off for zero intensity reflections to avoid a division by zero
-                # during error propogation. Not at all certain this is the best way.
+                # during error propagation. Not at all certain this is the best way.
                 self.corrected_reflections.extend(
                     correct(refl_nonzero, smart_sigmas=True)
                 )

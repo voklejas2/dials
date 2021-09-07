@@ -1,9 +1,8 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
 
-from dials.util import show_mail_on_error
 from libtbx.phil import parse
+
+from dials.util import show_mail_handle_errors
 
 logger = logging.getLogger("dials.command_line.create_profile_model")
 
@@ -36,7 +35,7 @@ phil_scope = parse(
 )
 
 
-class Script(object):
+class Script:
     """Encapsulate the script in a class."""
 
     def __init__(self):
@@ -53,19 +52,18 @@ class Script(object):
             check_format=False,
         )
 
-    def run(self):
+    def run(self, args=None):
         """Run the script."""
         from dials.algorithms.profile_model.factory import ProfileModelFactory
-        from dials.util.command_line import Command
         from dials.array_family import flex
+        from dials.util import Sorry, log
+        from dials.util.command_line import Command
         from dials.util.options import reflections_and_experiments_from_files
-        from dials.util import Sorry
-        from dials.util import log
 
         log.config()
 
         # Parse the command line
-        params, options = self.parser.parse_args(show_diff_phil=True)
+        params, options = self.parser.parse_args(args, show_diff_phil=True)
         reflections, experiments = reflections_and_experiments_from_files(
             params.input.reflections, params.input.experiments
         )
@@ -114,8 +112,8 @@ class Script(object):
             logger.info("")
             logger.info("*" * 80)
             logger.info(
-                "Warning: %d reference spots were not matched to predictions"
-                % (len(unmatched))
+                "Warning: %d reference spots were not matched to predictions",
+                len(unmatched),
             )
             logger.info("*" * 80)
             logger.info("")
@@ -135,9 +133,9 @@ class Script(object):
                 logger.info("Sigma M: %f", sigma_m)
 
         # Write the parameters
-        Command.start("Writing experiments to %s" % params.output)
+        Command.start(f"Writing experiments to {params.output}")
         experiments.as_file(params.output)
-        Command.end("Wrote experiments to %s" % params.output)
+        Command.end(f"Wrote experiments to {params.output}")
 
     def process_reference(self, reference, params):
         """Load the reference spots."""
@@ -148,12 +146,12 @@ class Script(object):
         assert "miller_index" in reference
         assert "id" in reference
         logger.info("Processing reference reflections")
-        logger.info(" read %d strong spots" % len(reference))
+        logger.info(" read %d strong spots", len(reference))
         mask = reference.get_flags(reference.flags.indexed)
         rubbish = reference.select(~mask)
         if mask.count(False) > 0:
             reference.del_selected(~mask)
-            logger.info(" removing %d unindexed reflections" % mask.count(False))
+            logger.info(" removing %d unindexed reflections", mask.count(False))
         if len(reference) == 0:
             raise Sorry(
                 """
@@ -167,14 +165,13 @@ class Script(object):
             rubbish.extend(reference.select(mask))
             reference.del_selected(mask)
             logger.info(
-                " removing %d reflections marked as centroid outliers"
-                % mask.count(True)
+                " removing %d reflections marked as centroid outliers", mask.count(True)
             )
         mask = reference["miller_index"] == (0, 0, 0)
         if mask.count(True) > 0:
             rubbish.extend(reference.select(mask))
             reference.del_selected(mask)
-            logger.info(" removing %d reflections with hkl (0,0,0)" % mask.count(True))
+            logger.info(" removing %d reflections with hkl (0,0,0)", mask.count(True))
         mask = reference["id"] < 0
         if mask.count(True) > 0:
             raise Sorry(
@@ -184,12 +181,12 @@ class Script(object):
       """
                 % mask.count(True)
             )
-        logger.info(" using %d indexed reflections" % len(reference))
-        logger.info(" found %d junk reflections" % len(rubbish))
+        logger.info(" using %d indexed reflections", len(reference))
+        logger.info(" found %d junk reflections", len(rubbish))
 
         if "background.mean" in reference and params.subtract_background:
             logger.info(
-                " subtracting background from %d reference reflections" % len(reference)
+                " subtracting background from %d reference reflections", len(reference)
             )
             for spot in reference:
                 spot["shoebox"].data -= spot["background.mean"]
@@ -214,11 +211,15 @@ class Script(object):
             )
             modified_count += modified.count(True)
             reference.set_selected(indices, subset)
-        logger.info(" masked neighbouring pixels in %d shoeboxes" % modified_count)
+        logger.info(" masked neighbouring pixels in %d shoeboxes", modified_count)
         return reference
 
 
+@show_mail_handle_errors()
+def run(args=None):
+    script = Script()
+    script.run(args)
+
+
 if __name__ == "__main__":
-    with show_mail_on_error():
-        script = Script()
-        script.run()
+    run()

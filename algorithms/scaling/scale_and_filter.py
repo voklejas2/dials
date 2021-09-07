@@ -1,13 +1,12 @@
-# coding: utf-8
 """Definitions of functions and classes for scaling and filtering algorithm."""
-from __future__ import absolute_import, division, print_function
 
 import math
 from collections import OrderedDict
 
-from dials.report.plots import ResolutionPlotterMixin
 from libtbx import phil
 from scitbx.array_family import flex
+
+from dials.report.plots import d_star_sq_to_d_ticks
 
 phil_scope = phil.parse(
     """
@@ -32,7 +31,7 @@ filtering {
                     "cchalf in image_group mode"
         stdcutoff = 4.0
             .type = float
-            .help = "Datasets with a delta cc half below (mean - stdcutoff*std) are removed"
+            .help = "Datasets with a ΔCC½ below (mean - stdcutoff*std) are removed"
     }
     output {
         scale_and_filter_results = "scale_and_filter_results.json"
@@ -80,7 +79,7 @@ def log_cycle_results(results, scaling_script, filter_script):
     return results
 
 
-class AnalysisResults(object):
+class AnalysisResults:
     """Class to store results from scaling and filtering."""
 
     def __init__(self):
@@ -178,17 +177,17 @@ class AnalysisResults(object):
         """Make summary of results."""
         msg = "\nSummary of data removed:\n"
         for i, res in enumerate(self.get_cycle_results()):
-            msg += "Cycle number: %s\n" % (i + 1)
+            msg += f"Cycle number: {i + 1}\n"
             if "image_ranges_removed" in res:
                 if res["image_ranges_removed"]:
                     removed = "\n    ".join(
                         str(t[0]) + ", dataset " + str(t[1])
                         for t in res["image_ranges_removed"]
                     )
-                    msg += "  Removed image ranges: \n    %s" % removed
+                    msg += f"  Removed image ranges: \n    {removed}"
             else:
                 if res["removed_ids"]:
-                    msg += "  Removed datasets: %s\n" % res["removed_ids"]
+                    msg += f"  Removed datasets: {res['removed_ids']}\n"
             msg += (
                 "  cumulative %% of reflections removed: %.3f\n"
                 % res["cumul_percent_removed"]
@@ -255,9 +254,9 @@ def make_filtering_merging_stats_plots(merging_stats):
                     }
                 ],
                 "layout": {
-                    "title": u"CC<sub>½</sub> vs cycle",
+                    "title": "CC<sub>½</sub> vs cycle",
                     "xaxis": {"title": "Cycle number"},
-                    "yaxis": {"title": u"CC<sub>½</sub>"},
+                    "yaxis": {"title": "CC<sub>½</sub>"},
                 },
             }
         }
@@ -293,9 +292,9 @@ def make_filtering_merging_stats_plots(merging_stats):
                     }
                 ],
                 "layout": {
-                    "title": u"<I/σ(I)> vs cycle",
+                    "title": "<I/σ(I)> vs cycle",
                     "xaxis": {"title": "Cycle number"},
-                    "yaxis": {"title": u"<I/σ(I)>"},
+                    "yaxis": {"title": "<I/σ(I)>"},
                 },
             }
         }
@@ -323,7 +322,7 @@ def make_filtering_merging_stats_plots(merging_stats):
     r_pim_bins = merging_stats[0]["rpim"]
     r_merge_bins = merging_stats[0]["rmerge"]
     resolution = [1.0 / x ** 2 for x in merging_stats[0]["d_min"]]
-    vals, txt = ResolutionPlotterMixin._d_star_sq_to_d_ticks(resolution, 5)
+    vals, txt = d_star_sq_to_d_ticks(resolution, 5)
     d.update(
         {
             "cc_one_half_filter": {
@@ -338,13 +337,13 @@ def make_filtering_merging_stats_plots(merging_stats):
                     }
                 ],
                 "layout": {
-                    "title": u"CC<sub>½</sub> vs resolution",
+                    "title": "CC<sub>½</sub> vs resolution",
                     "xaxis": {
-                        "title": u"Resolution (Å)",
+                        "title": "Resolution (Å)",
                         "tickvals": vals,
                         "ticktext": txt,
                     },
-                    "yaxis": {"title": u"CC<sub>½</sub>", "range": [0, 1]},
+                    "yaxis": {"title": "CC<sub>½</sub>", "range": [0, 1]},
                 },
             }
         }
@@ -365,7 +364,7 @@ def make_filtering_merging_stats_plots(merging_stats):
                 "layout": {
                     "title": "R-pim vs resolution",
                     "xaxis": {
-                        "title": u"Resolution (Å)",
+                        "title": "Resolution (Å)",
                         "tickvals": vals,
                         "ticktext": txt,
                     },
@@ -393,7 +392,7 @@ def make_filtering_merging_stats_plots(merging_stats):
                 "layout": {
                     "title": "R-merge vs resolution",
                     "xaxis": {
-                        "title": u"Resolution (Å)",
+                        "title": "Resolution (Å)",
                         "tickvals": vals,
                         "ticktext": txt,
                     },
@@ -462,20 +461,18 @@ def make_histogram_plots(cycle_results):
                     }
                 ],
                 "layout": {
-                    "title": u"Resolution-averaged CC<sub>½</sub> (σ-τ) vs cycle",
+                    "title": "Resolution-averaged CC<sub>½</sub> (σ-τ) vs cycle",
                     "xaxis": {"title": "Cycle number"},
-                    "yaxis": {"title": u"Resolution-averaged CC<sub>½</sub> (σ-τ)"},
+                    "yaxis": {"title": "Resolution-averaged CC<sub>½</sub> (σ-τ)"},
                 },
             }
         }
     )
     colors = [(color_list * int(math.ceil(n / len(color_list))))[i] for i in range(n)]
     if n == 1:
-        legends = ["Delta CC<sub>½</sub> analysis"]
+        legends = ["ΔCC<sub>½</sub> analysis"]
     else:
-        legends = [
-            ordinal(i) + " Delta CC<sub>½</sub> analysis" for i in range(1, n + 1)
-        ]
+        legends = [ordinal(i) + " ΔCC<sub>½</sub> analysis" for i in range(1, n + 1)]
     if "image_ranges_removed" in cycle_results[0]:
         n_rej = [len(res["image_ranges_removed"]) for res in cycle_results]
     else:
@@ -496,8 +493,7 @@ def make_histogram_plots(cycle_results):
     def _add_new_histogram(d, hist, index):
         d.update(
             {
-                "scale_filter_histograms_%s"
-                % index: {
+                f"scale_filter_histograms_{index}": {
                     "data": [
                         {
                             "x": list(hist.slot_centers()),
@@ -508,8 +504,8 @@ def make_histogram_plots(cycle_results):
                         }
                     ],
                     "layout": {
-                        "title": "%s" % legends[index],
-                        "xaxis": {"title": u"Delta CC<sub>½</sub>"},
+                        "title": f"{legends[index]}",
+                        "xaxis": {"title": "ΔCC<sub>½</sub>"},
                         "yaxis": {
                             "title": "Number of datasets/groups",
                             "range": [0, min(max(hist.slots()), 50)],
@@ -529,7 +525,7 @@ def make_histogram_plots(cycle_results):
 
 
 def make_per_dataset_plot(delta_cchalf_i):
-    """Make a line plot of delta cc half per group."""
+    """Make a line plot of ΔCC½ per group."""
 
     d = OrderedDict()
     d.update(
@@ -544,9 +540,9 @@ def make_per_dataset_plot(delta_cchalf_i):
                     }
                 ],
                 "layout": {
-                    "title": "Delta CC<sub>½</sub> vs group",
+                    "title": "ΔCC<sub>½</sub> vs group",
                     "xaxis": {"title": "Group number"},
-                    "yaxis": {"title": "Delta CC<sub>½</sub>"},
+                    "yaxis": {"title": "ΔCC<sub>½</sub>"},
                 },
             }
         }

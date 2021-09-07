@@ -1,7 +1,6 @@
-from __future__ import absolute_import, division, print_function
+from libtbx.phil import parse
 
 from dials.array_family import flex
-from libtbx.phil import parse
 
 phil_scope = parse(
     """
@@ -24,7 +23,7 @@ overlaps_filter {
 )
 
 
-class OverlapsFilter(object):
+class OverlapsFilter:
     from dials.algorithms.shoebox import MaskCode
 
     code_fgd = MaskCode.Foreground | MaskCode.Valid
@@ -150,7 +149,7 @@ class OverlapsFilter(object):
         )
 
 
-class OverlapsFilterMultiExpt(object):
+class OverlapsFilterMultiExpt:
     def __init__(self, refl, expt):
         self.filters = [
             OverlapsFilter(r, e) for (r, e) in zip(refl.split_by_experiment_id(), expt)

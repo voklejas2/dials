@@ -1,13 +1,10 @@
-from __future__ import absolute_import, division, print_function
-
 from libtbx.phil import parse
 
 from dials.algorithms.shadowing.filter import filter_shadowed_reflections
 from dials.array_family import flex
-from dials.util import show_mail_on_error
+from dials.util import show_mail_handle_errors
 from dials.util.command_line import Command
-from dials.util.options import flatten_experiments
-from dials.util.options import OptionParser
+from dials.util.options import OptionParser, flatten_experiments
 
 help_message = """
 
@@ -52,7 +49,7 @@ phil_scope = parse(
 )
 
 
-class Script(object):
+class Script:
     """A class for running the script."""
 
     def __init__(self):
@@ -72,10 +69,10 @@ class Script(object):
             read_experiments=True,
         )
 
-    def run(self):
+    def run(self, args=None):
         """Execute the script."""
         # Parse the command line
-        params, options = self.parser.parse_args(show_diff_phil=True)
+        params, options = self.parser.parse_args(args, show_diff_phil=True)
 
         # Check the number of experiments
         experiments = flatten_experiments(params.input.experiments)
@@ -127,16 +124,16 @@ class Script(object):
             pass
 
         # Save the reflections to file
-        Command.start(
-            "Saving {0} reflections to {1}".format(len(predicted_all), params.output)
-        )
+        Command.start(f"Saving {len(predicted_all)} reflections to {params.output}")
         predicted_all.as_file(params.output)
-        Command.end(
-            "Saved {0} reflections to {1}".format(len(predicted_all), params.output)
-        )
+        Command.end(f"Saved {len(predicted_all)} reflections to {params.output}")
+
+
+@show_mail_handle_errors()
+def run(args=None):
+    script = Script()
+    script.run(args)
 
 
 if __name__ == "__main__":
-    with show_mail_on_error():
-        script = Script()
-        script.run()
+    run()

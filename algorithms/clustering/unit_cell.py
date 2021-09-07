@@ -1,9 +1,7 @@
-from __future__ import absolute_import, division, print_function
+import logging
 
 # modified version of the ab_cluster function so we can access the scipy dendrogram object
 from xfel.clustering.cluster import Cluster
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +20,7 @@ class UnitCellCluster(Cluster):
         labels="default",
     ):
         """
-        Hierarchical clustering using the unit cell dimentions.
+        Hierarchical clustering using the unit cell dimensions.
 
         :param threshold: the threshold to use for prunning the tree into clusters.
         :param method: which clustering method from scipy to use when creating the tree (see scipy.cluster.hierarchy)
@@ -31,12 +29,12 @@ class UnitCellCluster(Cluster):
         :param ax: if a matplotlib axes object is provided, plot to this.
                    Otherwise, create a new axes object and display on screen.
         :param write_file_lists: if True, write out the files that make up each cluster.
-        :param schnell: if True, use simple euclidian distance, otherwise, use Andrews-Bernstein
+        :param schnell: if True, use simple euclidean distance, otherwise, use Andrews-Bernstein
                         distance from Andrews & Bernstein J Appl Cryst 47:346 (2014) on the Niggli cells.
         :param doplot: Boolean flag for if the plotting should be done at all.
                        Runs faster if switched off.
         :param labels: 'default' will not display any labels for more than 100 images, but will display
-                       file names for fewer. This can be manually overidden with a boolean flag.
+                       file names for fewer. This can be manually overridden with a boolean flag.
         :return: A list of Clusters ordered by largest Cluster to smallest
 
         .. note::
@@ -45,12 +43,13 @@ class UnitCellCluster(Cluster):
         """
 
         import numpy as np
-        from xfel.clustering.singleframe import SingleFrame
+
         from cctbx.uctbx.determine_unit_cell import NCDist
+        from xfel.clustering.singleframe import SingleFrame
 
         logger.info("Hierarchical clustering of unit cells")
-        import scipy.spatial.distance as dist
         import scipy.cluster.hierarchy as hcluster
+        import scipy.spatial.distance as dist
 
         # 1. Create a numpy array of G6 cells
         g6_cells = np.array([SingleFrame.make_g6(image.uc) for image in self.members])
@@ -80,9 +79,7 @@ class UnitCellCluster(Cluster):
         # 3. Create an array of sub-cluster objects from the clustering
         sub_clusters = []
         for cluster in range(max(cluster_ids)):
-            info_string = (
-                "Made using ab_cluster with t={}," " {} method, and {} linkage"
-            ).format(threshold, method, linkage_method)
+            info_string = f"Made using ab_cluster with t={threshold}, {method} method, and {linkage_method} linkage"
             sub_clusters.append(
                 self.make_sub_cluster(
                     [
@@ -90,7 +87,7 @@ class UnitCellCluster(Cluster):
                         for i in range(len(self.members))
                         if cluster_ids[i] == cluster + 1
                     ],
-                    "cluster_{}".format(cluster + 1),
+                    f"cluster_{cluster + 1}",
                     info_string,
                 )
             )
@@ -98,13 +95,13 @@ class UnitCellCluster(Cluster):
         sub_clusters = sorted(sub_clusters, key=lambda x: len(x.members))
         # Rename to order by size
         for num, cluster in enumerate(sub_clusters):
-            cluster.cname = "cluster_{}".format(num + 1)
+            cluster.cname = f"cluster_{num + 1}"
 
         # 3.5 optionally write out the clusters to files.
         if write_file_lists:
             for cluster in sub_clusters:
                 if len(cluster.members) > 1:
-                    cluster.dump_file_list(out_file_name="{}.lst".format(cluster.cname))
+                    cluster.dump_file_list(out_file_name=f"{cluster.cname}.lst")
 
         if labels is True:
             labels = [image.name for image in self.members]
@@ -149,7 +146,7 @@ class UnitCellCluster(Cluster):
                 ax.set_ylim(-ax.get_ylim()[1] / 100, ax.get_ylim()[1])
 
             if direct_visualisation:
-                fig.savefig("{}_dendogram.pdf".format(self.cname))
+                fig.savefig(f"{self.cname}_dendogram.pdf")
                 plt.show()
 
         return sub_clusters, dendrogram, ax

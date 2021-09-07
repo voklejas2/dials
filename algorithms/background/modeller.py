@@ -1,5 +1,3 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
 
 from dials_algorithms_background_modeller_ext import (
@@ -19,7 +17,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-class FinalizeModel(object):
+class FinalizeModel:
     """
     A class to finalize the background model
     """
@@ -59,17 +57,16 @@ class FinalizeModel(object):
         :param data: The data array
         :param mask: The mask array
         """
-        from dials.algorithms.image.filter import median_filter, mean_filter
-        from dials.algorithms.image.fill_holes import diffusion_fill
-        from dials.algorithms.image.fill_holes import simple_fill
+        from dials.algorithms.image.fill_holes import diffusion_fill, simple_fill
+        from dials.algorithms.image.filter import mean_filter, median_filter
         from dials.array_family import flex
 
         # Print some image properties
         sub_data = data.as_1d().select(mask.as_1d())
         logger.info("Raw image statistics:")
-        logger.info("  min:  %d" % int(flex.min(sub_data)))
-        logger.info("  max:  %d" % int(flex.max(sub_data)))
-        logger.info("  mean: %d" % int(flex.mean(sub_data)))
+        logger.info("  min:  %d", int(flex.min(sub_data)))
+        logger.info("  max:  %d", int(flex.max(sub_data)))
+        logger.info("  mean: %d", int(flex.mean(sub_data)))
         logger.info("")
 
         # Transform to polar
@@ -79,9 +76,9 @@ class FinalizeModel(object):
         mask = result.mask()
         sub_data = data.as_1d().select(mask.as_1d())
         logger.info("Polar image statistics:")
-        logger.info("  min:  %d" % int(flex.min(sub_data)))
-        logger.info("  max:  %d" % int(flex.max(sub_data)))
-        logger.info("  mean: %d" % int(flex.mean(sub_data)))
+        logger.info("  min:  %d", int(flex.min(sub_data)))
+        logger.info("  max:  %d", int(flex.max(sub_data)))
+        logger.info("  mean: %d", int(flex.mean(sub_data)))
         logger.info("")
 
         # Filter the image to remove noise
@@ -91,9 +88,9 @@ class FinalizeModel(object):
                 data = median_filter(data, mask, (self.kernel_size, 0), periodic=True)
                 sub_data = data.as_1d().select(mask.as_1d())
                 logger.info("Median polar image statistics:")
-                logger.info("  min:  %d" % int(flex.min(sub_data)))
-                logger.info("  max:  %d" % int(flex.max(sub_data)))
-                logger.info("  mean: %d" % int(flex.mean(sub_data)))
+                logger.info("  min:  %d", int(flex.min(sub_data)))
+                logger.info("  max:  %d", int(flex.max(sub_data)))
+                logger.info("  mean: %d", int(flex.mean(sub_data)))
                 logger.info("")
             elif self.filter_type == "mean":
                 logger.info("Applying mean filter")
@@ -102,12 +99,12 @@ class FinalizeModel(object):
                 data = mean_filter(data, mask_as_int, (self.kernel_size, 0), 1)
                 sub_data = data.as_1d().select(mask.as_1d())
                 logger.info("Mean polar image statistics:")
-                logger.info("  min:  %d" % int(flex.min(sub_data)))
-                logger.info("  max:  %d" % int(flex.max(sub_data)))
-                logger.info("  mean: %d" % int(flex.mean(sub_data)))
+                logger.info("  min:  %d", int(flex.min(sub_data)))
+                logger.info("  max:  %d", int(flex.max(sub_data)))
+                logger.info("  mean: %d", int(flex.mean(sub_data)))
                 logger.info("")
             else:
-                raise RuntimeError("Unknown filter_type: %s" % self.filter_type)
+                raise RuntimeError(f"Unknown filter_type: {self.filter_type}")
 
         # Fill any remaining holes
         logger.info("Filling holes")
@@ -116,9 +113,9 @@ class FinalizeModel(object):
         mask = flex.bool(data.accessor(), True)
         sub_data = data.as_1d().select(mask.as_1d())
         logger.info("Filled polar image statistics:")
-        logger.info("  min:  %d" % int(flex.min(sub_data)))
-        logger.info("  max:  %d" % int(flex.max(sub_data)))
-        logger.info("  mean: %d" % int(flex.mean(sub_data)))
+        logger.info("  min:  %d", int(flex.min(sub_data)))
+        logger.info("  max:  %d", int(flex.max(sub_data)))
+        logger.info("  mean: %d", int(flex.mean(sub_data)))
         logger.info("")
 
         # Transform back
@@ -128,9 +125,9 @@ class FinalizeModel(object):
         mask = result.mask()
         sub_data = data.as_1d().select(mask.as_1d())
         logger.info("Final image statistics:")
-        logger.info("  min:  %d" % int(flex.min(sub_data)))
-        logger.info("  max:  %d" % int(flex.max(sub_data)))
-        logger.info("  mean: %d" % int(flex.mean(sub_data)))
+        logger.info("  min:  %d", int(flex.min(sub_data)))
+        logger.info("  max:  %d", int(flex.max(sub_data)))
+        logger.info("  mean: %d", int(flex.mean(sub_data)))
         logger.info("")
 
         # Fill in any discontinuities
@@ -147,7 +144,7 @@ class FinalizeModel(object):
         return data
 
 
-class BackgroundModellerResult(object):
+class BackgroundModellerResult:
     """
     A class to contain the modelling result
     """
@@ -176,7 +173,7 @@ class BackgroundModellerResult(object):
         self.polar_model = polar_model
 
 
-class BackgroundModellerExecutor(object):
+class BackgroundModellerExecutor:
     def __init__(self, experiments, params):
         assert len(experiments) == 1
         self.min_images = params.modeller.min_images
@@ -197,13 +194,11 @@ class BackgroundModellerExecutor(object):
 
         # Write some output
         logger.info(
-            " Background modelling; job: %d; frames: %d -> %d; # Reflections: %d"
-            % (
-                job.index,
-                image_volume.frame0(),
-                image_volume.frame1(),
-                len(reflections),
-            )
+            " Background modelling; job: %d; frames: %d -> %d; # Reflections: %d",
+            job.index,
+            image_volume.frame0(),
+            image_volume.frame1(),
+            len(reflections),
         )
 
         # Compute the shoebox mask
@@ -242,7 +237,7 @@ class BackgroundModellerExecutor(object):
             elif self.image_type == "mean":
                 model = self.finalizer.finalize(mean, mask)
             else:
-                raise RuntimeError("Unknown image_type: %s" % self.image_type)
+                raise RuntimeError(f"Unknown image_type: {self.image_type}")
 
             # Add to the list
             result.append(
@@ -260,7 +255,7 @@ class BackgroundModellerExecutor(object):
         return result
 
 
-class BackgroundModeller(object):
+class BackgroundModeller:
     """
     A class to help with background modelling
     """
@@ -310,16 +305,14 @@ class BackgroundModeller(object):
 
         # Print the summary
         logger.info(
-            fmt
-            % (
-                len(self.experiments),
-                len(self.experiments.beams()),
-                len(self.experiments.detectors()),
-                len(self.experiments.goniometers()),
-                len(self.experiments.scans()),
-                len(self.experiments.crystals()),
-                len(self.experiments.imagesets()),
-            )
+            fmt,
+            len(self.experiments),
+            len(self.experiments.beams()),
+            len(self.experiments.detectors()),
+            len(self.experiments.goniometers()),
+            len(self.experiments.scans()),
+            len(self.experiments.crystals()),
+            len(self.experiments.imagesets()),
         )
 
         # Print a heading

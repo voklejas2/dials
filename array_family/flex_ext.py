@@ -1,5 +1,3 @@
-from __future__ import absolute_import, division, print_function
-
 # Do not import this file directly. Use
 #
 #   from dials.array_family import flex
@@ -12,24 +10,24 @@ import itertools
 import logging
 import operator
 import os
+import pickle
+from typing import Tuple
 
-import boost.python
+from annlib_ext import AnnAdaptorSelfInclude
+
+import boost_adaptbx.boost.python
 import cctbx.array_family.flex
 import cctbx.miller
-import dials_array_family_flex_ext
+import libtbx.smart_open
+from scitbx import matrix
+
 import dials.extensions.glm_background_ext
 import dials.extensions.simple_centroid_ext
 import dials.util.ext
-import libtbx.smart_open
-import six
-import six.moves.cPickle as pickle
+import dials_array_family_flex_ext
 from dials.algorithms.centroid import centroid_px_to_mm_panel
-from scitbx import matrix
 
-__all__ = [
-    "real",
-    "reflection_table_selector",
-]
+__all__ = ["real", "reflection_table_selector"]
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +40,8 @@ else:
     raise TypeError('unknown "real" type')
 
 
-@boost.python.inject_into(dials_array_family_flex_ext.reflection_table)
-class _(object):
+@boost_adaptbx.boost.python.inject_into(dials_array_family_flex_ext.reflection_table)
+class _:
     """
     An injector class to add additional methods to the reflection table.
     """
@@ -135,12 +133,16 @@ class _(object):
         return result
 
     @staticmethod
-    def from_observations(experiments, params=None):
+    def from_observations(experiments, params=None, is_stills=False):
         """
         Construct a reflection table from observations.
 
         :param experiments: The experiments
         :param params: The input parameters
+        :param is_stills:   [ADVANCED] Force still-handling of experiment
+                            ID remapping for dials.stills_process. Do
+                            not use for general processing unless you
+                            know all the implications.
         :return: The reflection table of observations
         """
         from dials.algorithms.spot_finding.factory import SpotFinderFactory
@@ -165,12 +167,12 @@ class _(object):
 
         # Get the integrator from the input parameters
         logger.info("Configuring spot finder from input parameters")
-        find_spots = SpotFinderFactory.from_parameters(
-            experiments=experiments, params=params
+        spotfinder = SpotFinderFactory.from_parameters(
+            experiments=experiments, params=params, is_stills=is_stills
         )
 
         # Find the spots
-        return find_spots(experiments)
+        return spotfinder.find_spots(experiments)
 
     @staticmethod
     def from_pickle(filename):
@@ -183,10 +185,7 @@ class _(object):
         if filename and hasattr(filename, "__fspath__"):
             filename = filename.__fspath__()
         with libtbx.smart_open.for_reading(filename, "rb") as infile:
-            if six.PY3:
-                result = pickle.load(infile, encoding="bytes")
-            else:
-                result = pickle.load(infile)
+            result = pickle.load(infile, encoding="bytes")
             assert isinstance(result, dials_array_family_flex_ext.reflection_table)
             return result
 
@@ -470,20 +469,6 @@ class _(object):
             ref_tmp.sort(key1, reverse)
             self[min(val) : (max(val) + 1)] = ref_tmp
 
-    def match(self, other):
-        """
-        Match reflections with another set of reflections.
-
-        :param other: The reflection table to match against
-        :return: A tuple containing the matches in the reflection table and the
-                 other reflection table
-        """
-        from dials.algorithms.spot_finding.spot_matcher import SpotMatcher
-
-        match = SpotMatcher(max_separation=2)
-        oind, sind = match(other, self)
-        return sind, oind
-
     def match_with_reference(self, other):
         """
         Match reflections with another set of reflections.
@@ -492,8 +477,8 @@ class _(object):
         :return: The matches
         """
         logger.info("Matching reference spots with predicted reflections")
-        logger.info(" %d observed reflections input" % len(other))
-        logger.info(" %d reflections predicted" % len(self))
+        logger.info(" %d observed reflections input", len(other))
+        logger.info(" %d reflections predicted", len(self))
 
         # Get the miller index, entering flag and turn number for
         # Both sets of reflections
@@ -509,7 +494,7 @@ class _(object):
         x2, y2, z2 = other["xyzcal.px"].parts()
         p2 = other["panel"]
 
-        class Match(object):
+        class Match:
             def __init__(self):
                 self.a = []
                 self.b = []
@@ -580,8 +565,8 @@ class _(object):
             + cctbx.array_family.flex.pow2(z1 - z2)
         )
         mask = distance < 2
-        logger.info(" %d reflections matched" % len(o2))
-        logger.info(" %d reflections accepted" % mask.count(True))
+        logger.info(" %d reflections matched", len(o2))
+        logger.info(" %d reflections accepted", mask.count(True))
         self.set_flags(sind.select(mask), self.flags.reference_spot)
         self.set_flags(sind.select(o2.get_flags(self.flags.strong)), self.flags.strong)
         self.set_flags(
@@ -604,6 +589,71 @@ class _(object):
         mask2 = cctbx.array_family.flex.bool(len(self), False)
         mask2.set_selected(sind.select(mask), True)
         return mask2, other_matched, other_unmatched
+
+    def match(
+        self,
+        other: dials_array_family_flex_ext.reflection_table,
+        *,
+        max_separation: int = 2,
+        key: str = "xyzobs.px.value",
+        scale: Tuple[float, float, float] = (1, 1, 1),
+    ) -> Tuple[
+        cctbx.array_family.flex.int,
+        cctbx.array_family.flex.int,
+        cctbx.array_family.flex.double,
+    ]:
+        """
+        Match reflections from this reflection list to another (reference) list
+
+        The match is based on comparison of any chosen 3-vector column.
+
+        Args:
+            other: The reflection table to match against
+            max_separations: Maximum distance in column-space to match on
+            key: Name of 3-vector column
+            scale:
+                Relative scales to apply to vectors before matching in
+                case e.g. very wide or very fine slicing.
+
+        Returns:
+            (self_index, other_index, distance) where:
+                self_index: is the reindex in the this reflection table
+                other_index: is the index in the other reflection table
+                distance: The calculated distance of specified column-vector
+
+            such that self[self_index][j] ~= other[other_index][j].
+        """
+
+        xyz = self[key]
+        ref = other[key]
+
+        if scale != (1, 1, 1):
+            x, y, z = xyz.parts()
+            x *= scale[0]
+            y *= scale[1]
+            z *= scale[2]
+            xyz = cctbx.array_family.flex.vec3_double(x, y, z)
+
+            x, y, z = ref.parts()
+            x *= scale[0]
+            y *= scale[1]
+            z *= scale[2]
+            ref = cctbx.array_family.flex.vec3_double(x, y, z)
+
+        x = xyz.as_double().as_1d()
+        r = ref.as_double().as_1d()
+        ann = AnnAdaptorSelfInclude(r, 3)
+        ann.query(x)
+
+        mm = cctbx.array_family.flex.size_t_range(xyz.size())
+        nn, distance = ann.nn.as_size_t(), cctbx.array_family.flex.sqrt(ann.distances)
+
+        sel = distance <= max_separation
+
+        mm = mm.select(sel)
+        nn = nn.select(sel)
+        distance = distance.select(sel)
+        return mm, nn, distance
 
     def compute_zeta(self, experiment):
         """
@@ -738,7 +788,7 @@ class _(object):
 
     def iterate_experiments_and_indices(self, experiments):
         """
-        A helper function to interate through experiments and indices of reflections
+        A helper function to iterate through experiments and indices of reflections
         for each experiment
         """
         assert len(experiments) > 0
@@ -748,8 +798,24 @@ class _(object):
         for l in index_list:
             tot += len(l)
         assert tot == len(self)
-        for experiment, indices in zip(experiments, index_list):
-            yield experiment, indices
+        yield from zip(experiments, index_list)
+
+    def random_split(self, n=2):
+        """Randomly split table into n tables.
+
+        Not all tables will be the same length."""
+        n = int(n)
+        if n <= 1:
+            return [self]
+        list_of_reflection_tables = []
+
+        perm = cctbx.array_family.flex.random_permutation(self.size())
+        divisions = [int(i * self.size() / n) for i in range(0, n + 1)]
+        for i, v in enumerate(divisions[:-1]):
+            isel = perm[v : divisions[i + 1]]
+            if isel:
+                list_of_reflection_tables.append(self.select(isel))
+        return list_of_reflection_tables
 
     def compute_background(self, experiments, image_volume=None):
         """
@@ -772,8 +838,9 @@ class _(object):
             self, image_volume=image_volume
         )
 
-    def compute_summed_intensity(self, image_volume=None):
-        # type: (dials.model.data.MultiPanelImageVolume) -> None
+    def compute_summed_intensity(
+        self, image_volume: dials.model.data.MultiPanelImageVolume = None
+    ) -> None:
         """
         Compute intensity via summation integration.
         """
@@ -827,8 +894,9 @@ class _(object):
         :param nthreads: The number of threads to use
         :return: A tuple containing read time and extract time
         """
-        from dials.model.data import make_image
         from time import time
+
+        from dials.model.data import make_image
 
         assert "shoebox" in self
         detector = imageset.get_detector()
@@ -1151,7 +1219,9 @@ Found %s"""
                 self["xyzobs.mm.value"].set_selected(sel, centroid_position)
                 self["xyzobs.mm.variance"].set_selected(sel, centroid_variance)
 
-    def map_centroids_to_reciprocal_space(self, experiments, calculated=False):
+    def map_centroids_to_reciprocal_space(
+        self, experiments, calculated=False, crystal_frame=False
+    ):
         """Map mm/radian spot centroids to reciprocal space.
 
         Used to convert spot centroids provided in mm/radian units to reciprocal space
@@ -1160,14 +1230,20 @@ Found %s"""
 
         Args:
           experiments (dxtbx.model.ExperimentList): A list of experiments.
+          calculated (Bool): use calculated positions.
+          crystal_frame (Bool): return x, y, z positions as divided by U matrix
         """
 
         self["s1"] = cctbx.array_family.flex.vec3_double(len(self))
         self["rlp"] = cctbx.array_family.flex.vec3_double(len(self))
         panel_numbers = cctbx.array_family.flex.size_t(self["panel"])
 
+        # crystal_frame is not used in indexing, but is a feature of the
+        # reciprocal lattice viewer -> but if we are looking at the crystal
+        # coordinate frame we need to look at the experiments independently
+
         for i, expt in enumerate(experiments):
-            if "imageset_id" in self:
+            if not crystal_frame and "imageset_id" in self:
                 sel_expt = self["imageset_id"] == i
             else:
                 sel_expt = self["id"] == i
@@ -1189,7 +1265,10 @@ Found %s"""
                         expt.goniometer.get_setting_rotation()
                     )
                     rotation_axis = expt.goniometer.get_rotation_axis_datum()
-                    fixed_rotation = matrix.sqr(expt.goniometer.get_fixed_rotation())
+                    sample_rotation = matrix.sqr(expt.goniometer.get_fixed_rotation())
+                    if expt.crystal and crystal_frame:
+                        sample_rotation *= matrix.sqr(expt.crystal.get_U())
+
                     self["rlp"].set_selected(sel, tuple(setting_rotation.inverse()) * S)
                     self["rlp"].set_selected(
                         sel,
@@ -1198,7 +1277,7 @@ Found %s"""
                         .rotate_around_origin(rotation_axis, -rot_angle),
                     )
                     self["rlp"].set_selected(
-                        sel, tuple(fixed_rotation.inverse()) * self["rlp"].select(sel)
+                        sel, tuple(sample_rotation.inverse()) * self["rlp"].select(sel)
                     )
                 else:
                     self["rlp"].set_selected(sel, S)
@@ -1248,7 +1327,7 @@ Found %s"""
         return default
 
 
-class reflection_table_selector(object):
+class reflection_table_selector:
     """
     A class to select columns from reflection table.
 

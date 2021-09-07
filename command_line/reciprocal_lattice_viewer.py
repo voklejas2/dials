@@ -1,16 +1,15 @@
 # LIBTBX_PRE_DISPATCHER_INCLUDE_SH export PHENIX_GUI_ENVIRONMENT=1
 # DIALS_ENABLE_COMMAND_LINE_COMPLETION
-from __future__ import absolute_import, division, print_function
 
 import copy
-import sys
+import os
 
-from scitbx.array_family import flex
 import wxtbx.app
+from scitbx.array_family import flex
 
 import dials.util.log
-from dials.util.reciprocal_lattice.viewer import ReciprocalLatticeViewer, phil_scope
 from dials.util.options import OptionParser, reflections_and_experiments_from_files
+from dials.util.reciprocal_lattice.viewer import ReciprocalLatticeViewer, phil_scope
 
 help_message = """
 Visualise the strong spots from spotfinding in reciprocal space.
@@ -23,7 +22,9 @@ Examples::
 """
 
 
-def run(args):
+@dials.util.show_mail_handle_errors()
+def run(args=None):
+    dials.util.log.print_banner()
     usage = "dials.reciprocal_lattice_viewer [options] models.expt observations.refl"
 
     parser = OptionParser(
@@ -35,7 +36,7 @@ def run(args):
         epilog=help_message,
     )
 
-    params, options = parser.parse_args(show_diff_phil=True)
+    params, options = parser.parse_args(args, show_diff_phil=True)
     reflections, experiments = reflections_and_experiments_from_files(
         params.input.reflections, params.input.experiments
     )
@@ -52,7 +53,6 @@ def run(args):
                 reflections[0].extend(reflections[i])
     elif "imageset_id" not in reflections[0]:
         reflections[0]["imageset_id"] = reflections[0]["id"]
-        reflections[0]["id"] = flex.int(reflections[0].size(), -1)
 
     reflections = reflections[0]
 
@@ -61,7 +61,7 @@ def run(args):
     f = ReciprocalLatticeViewer(
         None,
         -1,
-        "Reflection data viewer",
+        os.path.realpath(params.input.reflections[0].filename),
         size=(1024, 768),
         settings=copy.deepcopy(params),
     )
@@ -72,5 +72,4 @@ def run(args):
 
 
 if __name__ == "__main__":
-    dials.util.log.print_banner()
-    run(sys.argv[1:])
+    run()

@@ -1,12 +1,9 @@
-from __future__ import absolute_import, division, print_function
-
 import dials_algorithms_spot_prediction_ext
 from dials_algorithms_spot_prediction_ext import (
     IndexGenerator,
     NaveStillsReflectionPredictor,
     PixelLabeller,
     PixelToMillerIndex,
-    ray_intersection,
     ReekeIndexGenerator,
     RotationAngles,
     ScanStaticRayPredictor,
@@ -14,6 +11,7 @@ from dials_algorithms_spot_prediction_ext import (
     SphericalRelpStillsReflectionPredictor,
     StillsDeltaPsiReflectionPredictor,
     StillsRayPredictor,
+    ray_intersection,
 )
 
 __all__ = [

@@ -1,20 +1,17 @@
 # DIALS_ENABLE_COMMAND_LINE_COMPLETION
 
-from __future__ import absolute_import, division, print_function
 
 import logging
 
 from libtbx.phil import parse
 
-from dials.array_family import flex
 from dials.algorithms.shoebox import MaskCode
 from dials.algorithms.spot_finding import per_image_analysis
-from dials.util.multi_dataset_handling import generate_experiment_identifiers
-from dials.util import log
-from dials.util import show_mail_on_error
+from dials.array_family import flex
+from dials.util import log, show_mail_handle_errors
 from dials.util.ascii_art import spot_counts_per_image_plot
-from dials.util.options import OptionParser
-from dials.util.options import flatten_experiments
+from dials.util.multi_dataset_handling import generate_experiment_identifiers
+from dials.util.options import OptionParser, flatten_experiments
 from dials.util.version import dials_version
 
 logger = logging.getLogger("dials.command_line.find_spots")
@@ -83,11 +80,23 @@ phil_scope = parse(
     process_includes=True,
 )
 
+# Local overrides for dials.find_spots
+phil_overrides = parse(
+    """
+spotfinder {
+  mp {
+    nproc = Auto
+  }
+}
+"""
+)
+working_phil = phil_scope.fetch(sources=[phil_overrides])
 
-class Script(object):
+
+class Script:
     """A class for running the script."""
 
-    def __init__(self, phil=phil_scope):
+    def __init__(self, phil=working_phil):
         """Initialise the script."""
         # The script usage
         usage = (
@@ -168,15 +177,15 @@ class Script(object):
             if experiment.imageset not in imagesets:
                 imagesets.append(experiment.imageset)
 
-        for imageset in imagesets:
+        for i, imageset in enumerate(imagesets):
             selected = flex.bool(reflections.nrows(), False)
-            for i, experiment in enumerate(experiments):
+            for j, experiment in enumerate(experiments):
                 if experiment.imageset is not imageset:
                     continue
-                selected.set_selected(reflections["id"] == i, True)
+                selected.set_selected(reflections["id"] == j, True)
             ascii_plot = spot_counts_per_image_plot(reflections.select(selected))
             if len(ascii_plot):
-                logger.info("\nHistogram of per-image spot count for imageset %i:" % i)
+                logger.info("\nHistogram of per-image spot count for imageset %i:", i)
                 logger.info(ascii_plot)
 
         # Save the reflections to file
@@ -190,9 +199,7 @@ class Script(object):
 
         reflections.as_file(params.output.reflections)
         logger.info(
-            "Saved {} reflections to {}".format(
-                len(reflections), params.output.reflections
-            )
+            "Saved %s reflections to %s", len(reflections), params.output.reflections
         )
 
         # Reset the trusted ranges
@@ -205,7 +212,7 @@ class Script(object):
         # Save the experiments
         if params.output.experiments:
 
-            logger.info("Saving experiments to {}".format(params.output.experiments))
+            logger.info(f"Saving experiments to {params.output.experiments}")
             experiments.as_file(params.output.experiments)
 
         # Print some per image statistics
@@ -226,7 +233,11 @@ class Script(object):
             return reflections
 
 
+@show_mail_handle_errors()
+def run(args=None):
+    script = Script()
+    script.run(args)
+
+
 if __name__ == "__main__":
-    with show_mail_on_error():
-        script = Script()
-        script.run()
+    run()

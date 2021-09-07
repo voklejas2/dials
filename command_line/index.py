@@ -1,6 +1,5 @@
-from __future__ import absolute_import, division, print_function
-
 # DIALS_ENABLE_COMMAND_LINE_COMPLETION
+
 
 import concurrent.futures
 import copy
@@ -9,14 +8,13 @@ import sys
 
 import iotbx.phil
 from dxtbx.model.experiment_list import ExperimentList
-from dials.algorithms.indexing import indexer
-from dials.algorithms.indexing import DialsIndexError
+
+from dials.algorithms.indexing import DialsIndexError, indexer
 from dials.array_family import flex
-from dials.util.slice import slice_reflections
-from dials.util.options import OptionParser
-from dials.util.options import reflections_and_experiments_from_files
+from dials.util import log, show_mail_handle_errors
 from dials.util.multi_dataset_handling import renumber_table_id_columns
-from dials.util import log
+from dials.util.options import OptionParser, reflections_and_experiments_from_files
+from dials.util.slice import slice_reflections
 from dials.util.version import dials_version
 
 logger = logging.getLogger("dials.command_line.index")
@@ -208,7 +206,8 @@ def index(experiments, reflections, params):
     return indexed_experiments, indexed_reflections
 
 
-def run(phil=working_phil, args=None):
+@show_mail_handle_errors()
+def run(args=None, phil=working_phil):
     usage = "dials.index [options] models.expt strong.refl"
 
     parser = OptionParser(
@@ -248,13 +247,13 @@ def run(phil=working_phil, args=None):
         sys.exit(str(e))
 
     # Save experiments
-    logger.info("Saving refined experiments to %s" % params.output.experiments)
+    logger.info("Saving refined experiments to %s", params.output.experiments)
     assert indexed_experiments.is_consistent()
     indexed_experiments.as_file(params.output.experiments)
 
     # Save reflections
-    logger.info("Saving refined reflections to %s" % params.output.reflections)
-    indexed_reflections.as_msgpack_file(filename=params.output.reflections)
+    logger.info("Saving refined reflections to %s", params.output.reflections)
+    indexed_reflections.as_file(filename=params.output.reflections)
 
 
 if __name__ == "__main__":

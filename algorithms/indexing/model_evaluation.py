@@ -1,22 +1,19 @@
-from __future__ import absolute_import, division, print_function
-
-import abc
 import collections
 import copy
 import logging
 import math
 
-import dials.util
 import libtbx
+from dxtbx.model import Crystal
 from scitbx import matrix
 from scitbx.array_family import flex
-from dxtbx.model import Crystal
+
+import dials.util
 from dials.algorithms.indexing.compare_orientation_matrices import (
     difference_rotation_matrix_axis_angle,
 )
 from dials.algorithms.refinement import RefinerFactory
 from dials.util.log import LoggingContext
-
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +72,7 @@ def filter_doubled_cell(solutions):
     return accepted_solutions
 
 
-class ModelRank(object):
-
-    __metaclass__ = abc.ABCMeta
-
+class ModelRank:
     def __init__(self):
         self.all_solutions = []
 
@@ -88,13 +82,11 @@ class ModelRank(object):
     def extend(self, items):
         self.all_solutions.extend(items)
 
-    @abc.abstractmethod
     def best_model(self):
-        pass
+        raise NotImplementedError()
 
-    @abc.abstractmethod
     def __str__(self):
-        pass
+        raise NotImplementedError()
 
 
 # Tracker for solutions based on code in rstbx/dps_core/basis_choice.py
@@ -106,7 +98,7 @@ class ModelRankFilter(ModelRank):
         volume_cutoff=1.25,
         n_indexed_cutoff=0.9,
     ):
-        super(ModelRankFilter, self).__init__()
+        super().__init__()
         self.check_doubled_cell = check_doubled_cell
         self.likelihood_cutoff = likelihood_cutoff
         self.volume_cutoff = volume_cutoff
@@ -114,11 +106,11 @@ class ModelRankFilter(ModelRank):
         self.filtered_solutions = []
 
     def append(self, item):
-        super(ModelRankFilter, self).append(item)
+        super().append(item)
         self.update_analysis()
 
     def extend(self, items):
-        super(ModelRankFilter, self).extend(items)
+        super().extend(items)
         self.update_analysis()
 
     def __len__(self):
@@ -197,10 +189,10 @@ class ModelRankFilter(ModelRank):
                         s.crystal.get_unit_cell(),
                         "{:.2f} {:.2f} {:.2f} {:.1f} {:.1f} {:.1f}",
                     ),
-                    "%.0f" % s.crystal.get_unit_cell().volume(),
+                    f"{s.crystal.get_unit_cell().volume():.0f}",
                     str(s.n_indexed),
-                    "%.0f" % (s.fraction_indexed * 100),
-                    "%.2f" % s.model_likelihood,
+                    f"{s.fraction_indexed * 100:.0f}",
+                    f"{s.model_likelihood:.2f}",
                 ]
             )
 
@@ -209,7 +201,7 @@ class ModelRankFilter(ModelRank):
 
 class ModelRankWeighted(ModelRank):
     def __init__(self, power=2, volume_weight=1, n_indexed_weight=1, rmsd_weight=1):
-        super(ModelRankWeighted, self).__init__()
+        super().__init__()
         self.volume_weight = volume_weight
         self.n_indexed_weight = n_indexed_weight
         self.rmsd_weight = rmsd_weight
@@ -293,27 +285,23 @@ class ModelRankWeighted(ModelRank):
                         s.crystal.get_unit_cell(),
                         "{:.2f} {:.2f} {:.2f} {:.1f} {:.1f} {:.1f}",
                     ),
-                    "%.0f" % s.crystal.get_unit_cell().volume(),
-                    "%.2f" % score_by_volume[i],
+                    f"{s.crystal.get_unit_cell().volume():.0f}",
+                    f"{score_by_volume[i]:.2f}",
                     str(s.n_indexed),
-                    "%.0f" % (s.fraction_indexed * 100),
-                    "%.2f" % score_by_fraction_indexed[i],
-                    "%.2f" % rmsd_xy[i],
-                    "%.2f" % score_by_rmsd_xy[i],
-                    "%.2f" % combined_scores[i],
+                    f"{s.fraction_indexed * 100:.0f}",
+                    f"{score_by_fraction_indexed[i]:.2f}",
+                    f"{rmsd_xy[i]:.2f}",
+                    f"{score_by_rmsd_xy[i]:.2f}",
+                    f"{combined_scores[i]:.2f}",
                 ]
             )
 
         return dials.util.tabulate(rows, headers="firstrow")
 
 
-class Strategy(object):
-
-    __metaclass__ = abc.ABCMeta
-
-    @abc.abstractmethod
+class Strategy:
     def evaluate(self, experiments, reflections):
-        pass
+        raise NotImplementedError()
 
 
 class ModelEvaluation(Strategy):

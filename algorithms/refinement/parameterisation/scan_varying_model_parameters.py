@@ -1,10 +1,9 @@
-from __future__ import absolute_import, division, print_function
-from dials.algorithms.refinement.parameterisation.model_parameters import (
-    Parameter,
-    ModelParameterisation,
-)
-import abc
 from scitbx.array_family import flex
+
+from dials.algorithms.refinement.parameterisation.model_parameters import (
+    ModelParameterisation,
+    Parameter,
+)
 from dials_refinement_helpers_ext import GaussianSmoother as GS
 
 # reusable PHIL string for options affecting scan-varying parameterisation
@@ -103,17 +102,15 @@ class GaussianSmoother(GS):
     """A Gaussian smoother for ScanVaryingModelParameterisations"""
 
     def value_weight(self, x, param):
-        result = super(GaussianSmoother, self).value_weight(x, flex.double(param.value))
+        result = super().value_weight(x, flex.double(param.value))
         return (result.get_value(), result.get_weight(), result.get_sumweight())
 
     def multi_value_weight(self, x, param):
-        result = super(GaussianSmoother, self).multi_value_weight(
-            flex.double(x), flex.double(param.value)
-        )
+        result = super().multi_value_weight(flex.double(x), flex.double(param.value))
         return (result.get_value(), result.get_weight(), result.get_sumweight())
 
     def positions(self):
-        return list(super(GaussianSmoother, self).positions())
+        return list(super().positions())
 
 
 class ScanVaryingModelParameterisation(ModelParameterisation):
@@ -128,8 +125,6 @@ class ScanVaryingModelParameterisation(ModelParameterisation):
     # The initial state is here equivalent to the initial state of the
     # time static version of the parameterisation, as it is assumed that we
     # start with a flat model wrt rotation angle.
-
-    __metaclass__ = abc.ABCMeta
 
     def __init__(
         self,
@@ -182,7 +177,6 @@ class ScanVaryingModelParameterisation(ModelParameterisation):
         """the number of parameter sets"""
         return self._num_sets
 
-    @abc.abstractmethod
     def compose(self, t):
         """compose the model state at image number t from its initial state and
         its parameter list. Also calculate the derivatives of the state wrt
@@ -191,7 +185,7 @@ class ScanVaryingModelParameterisation(ModelParameterisation):
         Unlike ModelParameterisation, does not automatically update the actual
         model class. This should be done once refinement is complete."""
 
-        pass
+        raise NotImplementedError()
 
     def get_param_vals(self, only_free=True):
         """export the values of the internal list of parameters as a
@@ -329,9 +323,7 @@ class ScanVaryingModelParameterisation(ModelParameterisation):
         # later calls, assumes compose has been called at image number t, so that
         # get_ds_dp will be specific for that image. Now call the base class method
         # and return the result
-        return super(
-            ScanVaryingModelParameterisation, self
-        ).calculate_state_uncertainties(self._var_cov)
+        return super().calculate_state_uncertainties(self._var_cov)
 
     def set_state_uncertainties(self, var_cov_list):
         """Send the calculated variance-covariance matrices for model state elements

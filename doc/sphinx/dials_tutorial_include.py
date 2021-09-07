@@ -1,5 +1,3 @@
-from __future__ import absolute_import, division, print_function
-
 import os
 
 import sphinx.directives.code as code
@@ -20,8 +18,7 @@ class DialsTutorialInclude(code.LiteralInclude):
     """Behaves like LiteralInclude but looks for files relative to the known
     DIALS output log directory."""
 
-    def run(self):
-        # type: () -> code.List[code.nodes.Node]
+    def run(self) -> code.List[code.nodes.Node]:
         document = self.state.document
         if not document.settings.file_insertion_enabled:
             return [
@@ -41,7 +38,7 @@ class DialsTutorialInclude(code.LiteralInclude):
             text, lines = reader.read(location=location)
 
             retnode = code.nodes.literal_block(text, text, source=filename)
-            code.set_source_info(self, retnode)
+            self.set_source_info(retnode)
             if self.options.get("diff"):  # if diff is set, set udiff
                 retnode["language"] = "udiff"
             elif "language" in self.options:
@@ -74,4 +71,5 @@ class DialsTutorialInclude(code.LiteralInclude):
 
             return [retnode]
         except Exception as exc:
-            return [document.reporter.warning(code.text_type(exc), line=self.lineno)]
+            print(exc)
+            return [document.reporter.warning(str(exc), line=self.lineno)]

@@ -1,15 +1,26 @@
-from __future__ import absolute_import, division, print_function
-
 import http.server as server_base
 import json
 import logging
+import multiprocessing
 import sys
 import time
-from multiprocessing import Process
+import urllib.parse
 
 import libtbx.phil
+from cctbx import uctbx
+from dxtbx.model.experiment_list import ExperimentListFactory
+from libtbx.introspection import number_of_processors
 
-from dials.util import Sorry
+from dials.algorithms.indexing import indexer
+from dials.algorithms.integration.integrator import create_integrator
+from dials.algorithms.profile_model.factory import ProfileModelFactory
+from dials.algorithms.spot_finding import per_image_analysis
+from dials.array_family import flex
+from dials.command_line.find_spots import phil_scope as find_spots_phil_scope
+from dials.command_line.index import phil_scope as index_phil_scope
+from dials.command_line.integrate import phil_scope as integrate_phil_scope
+from dials.util import Sorry, show_mail_handle_errors
+from dials.util.options import OptionParser
 
 logger = logging.getLogger("dials.command_line.find_spots_server")
 
@@ -63,6 +74,25 @@ To stop the server::
 stop = False
 
 
+def _filter_by_resolution(experiments, reflections, d_min=None, d_max=None):
+    reflections.centroid_px_to_mm(experiments)
+    reflections.map_centroids_to_reciprocal_space(experiments)
+    d_star_sq = flex.pow2(reflections["rlp"].norms())
+    reflections["d"] = uctbx.d_star_sq_as_d(d_star_sq)
+    # Filter based on resolution
+    if d_min is not None:
+        selection = reflections["d"] >= d_min
+        reflections = reflections.select(selection)
+        logger.debug(f"Selected {len(reflections)} reflections with d >= {d_min:f}")
+
+    # Filter based on resolution
+    if d_max is not None:
+        selection = reflections["d"] <= d_max
+        reflections = reflections.select(selection)
+        logger.debug(f"Selected {len(reflections)} reflections with d <= {d_max:f}")
+    return reflections
+
+
 def work(filename, cl=None):
     if cl is None:
         cl = []
@@ -93,10 +123,6 @@ indexing_min_spots = 10
     integrate = params.extract().integrate
     indexing_min_spots = params.extract().indexing_min_spots
 
-    from dials.command_line.find_spots import phil_scope as find_spots_phil_scope
-    from dxtbx.model.experiment_list import ExperimentListFactory
-    from dials.array_family import flex
-
     interp = find_spots_phil_scope.command_line_argument_interpreter()
     phil_scope, unhandled = interp.process_and_fetch(
         unhandled, custom_processor="collect_remaining"
@@ -107,11 +133,29 @@ indexing_min_spots = 10
     # no need to write the hot mask in the server/client
     params.spotfinder.write_hot_mask = False
     experiments = ExperimentListFactory.from_filenames([filename])
-    t0 = time.time()
+    if params.spotfinder.scan_range and len(experiments) > 1:
+        # This means we've imported a sequence of still image: select
+        # only the experiment, i.e. image, we're interested in
+        ((start, end),) = params.spotfinder.scan_range
+        experiments = experiments[start - 1 : end]
+
+    # Avoid overhead of calculating per-pixel resolution masks in spotfinding
+    # and instead perform post-filtering of spot centroids by resolution
+    d_min = params.spotfinder.filter.d_min
+    d_max = params.spotfinder.filter.d_max
+    params.spotfinder.filter.d_min = None
+    params.spotfinder.filter.d_max = None
+
+    t0 = time.perf_counter()
     reflections = flex.reflection_table.from_observations(experiments, params)
-    t1 = time.time()
-    logger.info("Spotfinding took %.2f seconds" % (t1 - t0))
-    from dials.algorithms.spot_finding import per_image_analysis
+
+    if d_min or d_max:
+        reflections = _filter_by_resolution(
+            experiments, reflections, d_min=d_min, d_max=d_max
+        )
+
+    t1 = time.perf_counter()
+    logger.info("Spotfinding took %.2f seconds", t1 - t0)
 
     imageset = experiments.imagesets()[0]
     reflections.centroid_px_to_mm(experiments)
@@ -119,13 +163,11 @@ indexing_min_spots = 10
     stats = per_image_analysis.stats_for_reflection_table(
         reflections, filter_ice=filter_ice, ice_rings_width=ice_rings_width
     )._asdict()
-    t2 = time.time()
-    logger.info("Resolution analysis took %.2f seconds" % (t2 - t1))
+    t2 = time.perf_counter()
+    logger.info("Resolution analysis took %.2f seconds", t2 - t1)
 
     if index and stats["n_spots_no_ice"] > indexing_min_spots:
         logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-        from dials.algorithms.indexing import indexer
-        from dials.command_line.index import phil_scope as index_phil_scope
 
         interp = index_phil_scope.command_line_argument_interpreter()
         phil_scope, unhandled = interp.process_and_fetch(
@@ -174,15 +216,10 @@ indexing_min_spots = 10
             logger.error(e)
             stats["error"] = str(e)
         finally:
-            t3 = time.time()
-            logger.info("Indexing took %.2f seconds" % (t3 - t2))
+            t3 = time.perf_counter()
+            logger.info("Indexing took %.2f seconds", t3 - t2)
 
         if integrate and "lattices" in stats:
-
-            from dials.algorithms.profile_model.factory import ProfileModelFactory
-            from dials.algorithms.integration.integrator import create_integrator
-            from dials.command_line.integrate import phil_scope as integrate_phil_scope
-
             interp = integrate_phil_scope.command_line_argument_interpreter()
             phil_scope, unhandled = interp.process_and_fetch(
                 unhandled, custom_processor="collect_remaining"
@@ -221,8 +258,8 @@ indexing_min_spots = 10
                     logger.info("")
                     logger.info("*" * 80)
                     logger.info(
-                        "Warning: %d reference spots were not matched to predictions"
-                        % (len(reference) - matched.count(True))
+                        "Warning: %d reference spots were not matched to predictions",
+                        len(reference) - matched.count(True),
                     )
                     logger.info("*" * 80)
                     logger.info("")
@@ -248,36 +285,45 @@ indexing_min_spots = 10
                 logger.error(e)
                 stats["error"] = str(e)
             finally:
-                t4 = time.time()
-                logger.info("Integration took %.2f seconds" % (t4 - t3))
+                t4 = time.perf_counter()
+                logger.info("Integration took %.2f seconds", t4 - t3)
 
     return stats
 
 
 class handler(server_base.BaseHTTPRequestHandler):
-    def do_GET(s):
+    def do_GET(self):
         """Respond to a GET request."""
-        s.send_response(200)
-        s.send_header("Content-type", "text/xml")
-        s.end_headers()
-        if s.path == "/Ctrl-C":
+        if self.path == "/Ctrl-C":
+            self.send_response(200)
+            self.end_headers()
+
             global stop
             stop = True
             return
-        filename = s.path.split(";")[0]
-        params = s.path.split(";")[1:]
+
+        filename = self.path.split(";")[0]
+        params = self.path.split(";")[1:]
+
+        # If we're passing a url through, then unquote and ignore leading /
+        if "%3A//" in filename:
+            filename = urllib.parse.unquote(filename[1:])
 
         d = {"image": filename}
 
         try:
             stats = work(filename, params)
             d.update(stats)
-
+            response = 200
         except Exception as e:
             d["error"] = str(e)
+            response = 500
 
-        response = json.dumps(d).encode("latin-1")
-        s.wfile.write(response)
+        self.send_response(response)
+        self.send_header("Content-type", "application/json")
+        self.end_headers()
+        response = json.dumps(d).encode()
+        self.wfile.write(response)
 
 
 def serve(httpd):
@@ -304,7 +350,7 @@ def main(nproc, port):
     print(time.asctime(), "Serving %d processes on port %d" % (nproc, port))
 
     for j in range(nproc - 1):
-        proc = Process(target=serve, args=(httpd,))
+        proc = multiprocessing.Process(target=serve, args=(httpd,))
         proc.daemon = True
         proc.start()
     serve(httpd)
@@ -312,15 +358,20 @@ def main(nproc, port):
     print(time.asctime(), "done")
 
 
-if __name__ == "__main__":
+@show_mail_handle_errors()
+def run(args=None):
     usage = "dials.find_spots_server [options]"
 
-    from dials.util.options import OptionParser
+    # Python 3.8 on macOS... needs fork
+    if sys.hexversion >= 0x3080000 and sys.platform == "darwin":
+        multiprocessing.set_start_method("fork")
 
     parser = OptionParser(usage=usage, phil=phil_scope, epilog=help_message)
-    params, options = parser.parse_args(show_diff_phil=True)
+    params, options = parser.parse_args(args, show_diff_phil=True)
     if params.nproc is libtbx.Auto:
-        from libtbx.introspection import number_of_processors
-
         params.nproc = number_of_processors(return_value_if_unknown=-1)
     main(params.nproc, params.port)
+
+
+if __name__ == "__main__":
+    run()

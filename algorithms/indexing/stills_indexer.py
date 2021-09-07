@@ -1,18 +1,17 @@
-from __future__ import absolute_import, division, print_function
-
 import copy
-import math
 import logging
+import math
 
 import libtbx
 from dxtbx.model.experiment_list import Experiment, ExperimentList
-from dials.array_family import flex
+
+from dials.algorithms.indexing import DialsIndexError, DialsIndexRefineError
 from dials.algorithms.indexing.indexer import Indexer
-from dials.util.multi_dataset_handling import generate_experiment_identifiers
 from dials.algorithms.indexing.known_orientation import IndexerKnownOrientation
 from dials.algorithms.indexing.lattice_search import BasisVectorSearch, LatticeSearch
 from dials.algorithms.indexing.nave_parameters import NaveParameters
-from dials.algorithms.indexing import DialsIndexError, DialsIndexRefineError
+from dials.array_family import flex
+from dials.util.multi_dataset_handling import generate_experiment_identifiers
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,7 @@ def plot_displacements(reflections, predictions, experiments):
     plt.figure()
     for cv in displacements:
         plt.plot([cv[0]], [-cv[1]], "r.")
-    plt.title(" %d spots, r.m.s.d. %5.2f pixels" % (len(displacements), rmsd))
+    plt.title(f" {len(displacements)} spots, r.m.s.d. {rmsd:5.2f} pixels")
     plt.axes().set_aspect("equal")
     plt.show()
     plt.close()
@@ -55,7 +54,7 @@ def plot_displacements(reflections, predictions, experiments):
 
     plt.xlim([0, experiments[0].detector[0].get_image_size()[0]])
     plt.ylim([0, experiments[0].detector[0].get_image_size()[1]])
-    plt.title(" %d spots, r.m.s.d. %5.2f pixels" % (len(displacements), rmsd))
+    plt.title(f" {len(displacements)} spots, r.m.s.d. {rmsd:5.2f} pixels")
     plt.axes().set_aspect("equal")
     plt.show()
     plt.close()
@@ -95,7 +94,7 @@ class StillsIndexer(Indexer):
         if params.refinement.reflections.outlier.algorithm in ("auto", libtbx.Auto):
             # The stills_indexer provides its own outlier rejection
             params.refinement.reflections.outlier.algorithm = "null"
-        super(StillsIndexer, self).__init__(reflections, experiments, params)
+        super().__init__(reflections, experiments, params)
 
     def index(self):
         # most of this is the same as dials.algorithms.indexing.indexer.indexer_base.index(), with some stills
@@ -122,8 +121,8 @@ class StillsIndexer(Indexer):
                 crystal_ids = self.reflections.select(d_spacings > d_min_indexed)["id"]
                 if (crystal_ids == -1).count(True) < min_reflections_for_indexing:
                     logger.info(
-                        "Finish searching for more lattices: %i unindexed reflections remaining."
-                        % (min_reflections_for_indexing)
+                        "Finish searching for more lattices: %i unindexed reflections remaining.",
+                        min_reflections_for_indexing,
                     )
                     break
 
@@ -215,17 +214,15 @@ class StillsIndexer(Indexer):
                             != crystal.get_space_group().type().lookup_symbol()
                         ):
                             logger.info(
-                                "Crystal isoform lookup_symbol %s does not match isoform %s lookup_symbol %s"
-                                % (
-                                    crystal.get_space_group().type().lookup_symbol(),
-                                    isoform.name,
-                                    isoform.lookup_symbol,
-                                )
+                                "Crystal isoform lookup_symbol %s does not match isoform %s lookup_symbol %s",
+                                crystal.get_space_group().type().lookup_symbol(),
+                                isoform.name,
+                                isoform.lookup_symbol,
                             )
                             continue
                         crystal.set_B(isoform.cell.fractionalization_matrix())
 
-                        logger.info("Refining isoform %s" % isoform.name)
+                        logger.info("Refining isoform %s", isoform.name)
                         refiners.append(
                             e_refine(
                                 params=self.all_params,
@@ -249,32 +246,28 @@ class StillsIndexer(Indexer):
                     minrmsd_mm = min(positional_rmsds)
                     minindex = positional_rmsds.index(minrmsd_mm)
                     logger.info(
-                        "The smallest rmsd is %5.1f um from isoform %s"
-                        % (
-                            1000.0 * minrmsd_mm,
-                            self.params.stills.isoforms[minindex].name,
-                        )
+                        "The smallest rmsd is %5.1f um from isoform %s",
+                        1000.0 * minrmsd_mm,
+                        self.params.stills.isoforms[minindex].name,
                     )
                     if self.params.stills.isoforms[minindex].rmsd_target_mm is not None:
                         logger.info(
-                            "Asserting %f < %f"
-                            % (
-                                minrmsd_mm,
-                                self.params.stills.isoforms[minindex].rmsd_target_mm,
-                            )
+                            "Asserting %f < %f",
+                            minrmsd_mm,
+                            self.params.stills.isoforms[minindex].rmsd_target_mm,
                         )
                         assert (
                             minrmsd_mm
                             < self.params.stills.isoforms[minindex].rmsd_target_mm
                         )
                     logger.info(
-                        "Acceptable rmsd for isoform %s."
-                        % (self.params.stills.isoforms[minindex].name)
+                        "Acceptable rmsd for isoform %s.",
+                        self.params.stills.isoforms[minindex].name,
                     )
                     if len(self.params.stills.isoforms) == 2:
                         logger.info(
-                            "Rmsd gain over the other isoform %5.1f um."
-                            % (1000.0 * abs(positional_rmsds[0] - positional_rmsds[1]))
+                            "Rmsd gain over the other isoform %5.1f um.",
+                            1000.0 * abs(positional_rmsds[0] - positional_rmsds[1]),
                         )
                     R = refiners[minindex]
                     # Now one last check to see if direct beam is out of bounds
@@ -290,16 +283,15 @@ class StillsIndexer(Indexer):
                             self.params.stills.isoforms[minindex].beam_restraint
                         )
                         logger.info(
-                            "Asserting difference in refined beam center and expected beam center %f < %f"
-                            % (
-                                (refined_beam - known_beam).length(),
-                                self.params.stills.isoforms[minindex].rmsd_target_mm,
-                            )
+                            "Asserting difference in refined beam center and expected beam center %f < %f",
+                            (refined_beam - known_beam).length(),
+                            self.params.stills.isoforms[minindex].rmsd_target_mm,
                         )
                         assert (
-                            (refined_beam - known_beam).length()
-                            < self.params.stills.isoforms[minindex].rmsd_target_mm
-                        )
+                            refined_beam - known_beam
+                        ).length() < self.params.stills.isoforms[
+                            minindex
+                        ].rmsd_target_mm
                         # future--circle of confusion could be given as a separate length in mm instead of reusing rmsd_target
 
                     experiment = R.get_experiments()[0]
@@ -366,7 +358,7 @@ class StillsIndexer(Indexer):
                 except Exception as e:
                     s = str(e)
                     if len(experiments) == 1:
-                        raise DialsIndexRefineError(e.message)
+                        raise DialsIndexRefineError(e)
                     logger.info("Refinement failed:")
                     logger.info(s)
                     del experiments[-1]
@@ -435,7 +427,7 @@ class StillsIndexer(Indexer):
             n_indexed = 0
             for _ in experiments.where(crystal=crystal_model):
                 n_indexed += (self.reflections["id"] == i).count(True)
-            logger.info("model %i (%i reflections):" % (i + 1, n_indexed))
+            logger.info("model %i (%i reflections):", i + 1, n_indexed)
             logger.info(crystal_model)
 
         if (
@@ -646,7 +638,7 @@ class StillsIndexer(Indexer):
 
         if params.indexing.stills.refine_all_candidates:
             if best.rmsd > params.indexing.stills.rmsd_min_px:
-                raise DialsIndexError("RMSD too high, %f" % best.rmsd)
+                raise DialsIndexError(f"RMSD too high, {best.rmsd:f}")
 
             if len(candidates) > 1:
                 for i in range(len(candidates)):
@@ -672,7 +664,7 @@ class StillsIndexer(Indexer):
 
         px_sz = experiments[0].detector[0].get_pixel_size()
 
-        class Match(object):
+        class Match:
             pass
 
         matches = []
@@ -685,8 +677,8 @@ class StillsIndexer(Indexer):
             m.miller_index = item["miller_index"]
             matches.append(m)
 
-        from rstbx.phil.phil_preferences import indexing_api_defs
         import iotbx.phil
+        from rstbx.phil.phil_preferences import indexing_api_defs
 
         hardcoded_phil = iotbx.phil.parse(input_string=indexing_api_defs).extract()
 

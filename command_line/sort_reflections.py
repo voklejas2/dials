@@ -1,6 +1,5 @@
-# LIBTBX_SET_DISPATCHER_NAME dev.dials.sort_reflections
+# LIBTBX_SET_DISPATCHER_NAME dials.sort_reflections
 
-from __future__ import absolute_import, division, print_function
 
 import dials.util
 from dials.array_family import flex
@@ -11,17 +10,18 @@ Utility script to sort reflection tables by the values in a column.
 
 Example::
 
-  dev.dials.sort_reflections key=miller_index output=sorted.refl
+  dials.sort_reflections key=miller_index output=sorted.refl
 """
 
 
-class Sort(object):
+class Sort:
     """A class for running the script."""
 
     def __init__(self):
         """Initialise the script."""
-        from dials.util.options import OptionParser
         from libtbx.phil import parse
+
+        from dials.util.options import OptionParser
 
         phil_scope = parse(
             """
@@ -41,7 +41,7 @@ class Sort(object):
             """
         )
 
-        usage = "dev.dials.sort_reflections [options] observations.refl"
+        usage = "dials.sort_reflections [options] observations.refl"
 
         # Initialise the base class
         self.parser = OptionParser(
@@ -54,12 +54,12 @@ class Sort(object):
         perm = sorted(indices, key=lambda k: column[k], reverse=reverse)
         return flex.size_t(perm)
 
-    def run(self):
+    def run(self, args=None):
         """Execute the script."""
         from dials.util.options import flatten_reflections
 
         # Parse the command line
-        params, options = self.parser.parse_args(show_diff_phil=True)
+        params, options = self.parser.parse_args(args, show_diff_phil=True)
         reflections = flatten_reflections(params.input.reflections)
         if not reflections:
             self.parser.print_help()
@@ -72,7 +72,7 @@ class Sort(object):
         assert params.key in reflections
 
         # Sort the reflections
-        print("Sorting by %s with reverse=%r" % (params.key, params.reverse))
+        print(f"Sorting by {params.key} with reverse={params.reverse!r}")
         perm = self.sort_permutation(reflections[params.key], params.reverse)
         reflections = reflections.select(perm)
 
@@ -84,11 +84,15 @@ class Sort(object):
 
         # Save sorted reflections to file
         if params.output:
-            print("Saving reflections to {}".format(params.output))
+            print(f"Saving reflections to {params.output}")
             reflections.as_file(params.output)
 
 
+@dials.util.show_mail_handle_errors()
+def run(args=None):
+    script = Sort()
+    script.run(args)
+
+
 if __name__ == "__main__":
-    with dials.util.show_mail_on_error():
-        script = Sort()
-        script.run()
+    run()

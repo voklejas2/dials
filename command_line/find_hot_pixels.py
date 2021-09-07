@@ -1,8 +1,9 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
+import pickle
 
 import iotbx.phil
+
+import dials.util
 from dials.util.options import OptionParser, reflections_and_experiments_from_files
 
 logger = logging.getLogger("dials.command_line.find_hot_pixels")
@@ -37,10 +38,9 @@ help_message = """
 """
 
 
-def run(args):
-    from dials.util import Sorry
-    from dials.util import log
-    import six.moves.cPickle as pickle
+@dials.util.show_mail_handle_errors()
+def run(args=None):
+    from dials.util import Sorry, log
 
     usage = "dials.find_hot_pixels [options] models.expt strong.refl"
 
@@ -55,7 +55,7 @@ def run(args):
     )
 
     # Get the parameters
-    params, options = parser.parse_args(show_diff_phil=False)
+    params, options = parser.parse_args(args, show_diff_phil=False)
 
     # Configure the log
     log.config(verbosity=options.verbose, logfile="dials.find_hot_pixels.log")
@@ -90,7 +90,7 @@ def run(args):
     with open(params.output.mask, "wb") as fh:
         pickle.dump(mask, fh, pickle.HIGHEST_PROTOCOL)
 
-    print("Wrote hot pixel mask to %s" % params.output.mask)
+    print(f"Wrote hot pixel mask to {params.output.mask}")
 
 
 def hot_pixel_mask(imageset, reflections):
@@ -106,7 +106,7 @@ def hot_pixel_mask(imageset, reflections):
     for x, y in xylist:
         mask[y, x] = False
 
-    print("Found %d hot pixels" % len(xylist))
+    print(f"Found {len(xylist)} hot pixels")
 
     return (mask,)
 
@@ -124,6 +124,4 @@ def filter_reflections(reflections, depth):
 
 
 if __name__ == "__main__":
-    import sys
-
-    run(sys.argv[1:])
+    run()

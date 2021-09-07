@@ -6,20 +6,22 @@ https://doi.org/10.1107/S2059798317010348
 Usage: dials.plot_Fo_vs_Fc hklin=refined.mtz
 """
 
-from __future__ import absolute_import, division, print_function
+
 import sys
-from dials.util import Sorry, show_mail_on_error
-from dials.util.options import OptionParser
+from math import sqrt
 
 import matplotlib
+
+from iotbx import mtz
+from scitbx.array_family import flex
+from scitbx.lstbx import normal_eqns, normal_eqns_solving
+
+from dials.util import Sorry, show_mail_handle_errors
+from dials.util.options import OptionParser
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
-from iotbx import mtz
-from scitbx.array_family import flex
-from scitbx.lstbx import normal_eqns, normal_eqns_solving
-from math import sqrt
 
 
 class HyperbolaFit(normal_eqns.non_linear_ls, normal_eqns.non_linear_ls_mixin):
@@ -30,7 +32,7 @@ class HyperbolaFit(normal_eqns.non_linear_ls, normal_eqns.non_linear_ls_mixin):
     a_sq0 = flex.double([1000])
 
     def __init__(self, x, y):
-        super(HyperbolaFit, self).__init__(n_parameters=1)
+        super().__init__(n_parameters=1)
         self.x = x
         self.y = y
         self.n_data = len(self.x)
@@ -82,7 +84,7 @@ class HyperbolaFit(normal_eqns.non_linear_ls, normal_eqns.non_linear_ls_mixin):
         return {"SSE": sse, "R-square": r_sq, "RMSE": rmse}
 
 
-class Script(object):
+class Script:
     """A class for running the script."""
 
     def __init__(self):
@@ -142,7 +144,7 @@ class Script(object):
         try:
             m = mtz.object(self.params.hklin)
         except RuntimeError:
-            raise Sorry("Could not read {0}".format(self.params.hklin))
+            raise Sorry(f"Could not read {self.params.hklin}")
 
         mad = m.as_miller_arrays_dict()
         mad = {k[-1]: v for (k, v) in mad.items()}
@@ -151,7 +153,7 @@ class Script(object):
 
         if [fobs, fc].count(None) > 0:
             raise Sorry(
-                "Columns {0} not found in available labels: {1}".format(
+                "Columns {} not found in available labels: {}".format(
                     ", ".join([self.params.Fo, self.params.Fc]),
                     ", ".join(m.column_labels()),
                 )
@@ -190,14 +192,14 @@ class Script(object):
             y = self.model_fit(x)
             ax.plot(x, y, c="0.0", linewidth=0.8)
 
-        print("Saving plot to {0}".format(self.params.plot_filename))
+        print(f"Saving plot to {self.params.plot_filename}")
         plt.savefig(self.params.plot_filename)
 
-    def run(self):
+    def run(self, args=None):
         """Execute the script."""
 
         # Parse the command line
-        self.params, _ = self.parser.parse_args(show_diff_phil=True)
+        self.params, _ = self.parser.parse_args(args, show_diff_phil=True)
 
         if self.params.hklin is None:
             self.parser.print_help()
@@ -220,13 +222,13 @@ class Script(object):
             intercept = hyperbola_fit.param[0]
 
             print("Model fit described by the formula: |Fo|^2 = sqrt(|Fc|^2 + |Fe|^2)")
-            print("where |Fe| = {:.5f}\n".format(sqrt(intercept)))
+            print(f"where |Fe| = {sqrt(intercept):.5f}\n")
 
             print("Goodness of fit:")
             gof = hyperbola_fit.goodness_of_fit()
-            print("SSE: {:.5g}".format(gof["SSE"]))
-            print("R-square: {:.5f}".format(gof["R-square"]))
-            print("RMSE: {:.2f}".format(gof["RMSE"]))
+            print(f"SSE: {gof['SSE']:.5g}")
+            print(f"R-square: {gof['R-square']:.5f}")
+            print(f"RMSE: {gof['RMSE']:.2f}")
             print()
 
             # Set the model_fit function using the determined intercept
@@ -243,7 +245,11 @@ class Script(object):
         return
 
 
+@show_mail_handle_errors()
+def run(args=None):
+    script = Script()
+    script.run(args)
+
+
 if __name__ == "__main__":
-    with show_mail_on_error():
-        script = Script()
-        script.run()
+    run()

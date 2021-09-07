@@ -1,10 +1,10 @@
 """Lattice search strategies."""
 
-from __future__ import absolute_import, division, print_function
 
-
-class Strategy(object):
+class Strategy:
     """A base class for lattice search strategies."""
+
+    phil_help = None
 
     phil_scope = None
 

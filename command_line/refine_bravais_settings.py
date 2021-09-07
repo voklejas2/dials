@@ -26,7 +26,6 @@ Examples::
   dials.refine_bravais_settings indexed.expt indexed.refl nproc=4
 """
 
-from __future__ import absolute_import, division, print_function
 
 import collections
 import json
@@ -37,8 +36,9 @@ import sys
 import libtbx.phil
 from cctbx import sgtbx
 from cctbx.sgtbx import bravais_types
-
 from dxtbx.model import ExperimentList
+
+import dials.util
 from dials.algorithms.indexing.bravais_settings import (
     refined_settings_from_refined_triclinic,
 )
@@ -46,7 +46,6 @@ from dials.array_family import flex
 from dials.util import log
 from dials.util.options import OptionParser, reflections_and_experiments_from_files
 from dials.util.version import dials_version
-
 
 logger = logging.getLogger("dials.command_line.refine_bravais_settings")
 
@@ -79,6 +78,7 @@ def bravais_lattice_to_space_groups(chiral_only=True):
             bravais_lattice = bravais_types.bravais_lattice(group=sg)
             bravais_lattice_to_sg.setdefault(str(bravais_lattice), [])
             bravais_lattice_to_sg[str(bravais_lattice)].append(sg)
+    bravais_lattice_to_sg["mI"] = [sgtbx.space_group_info("I2").group()]
     return bravais_lattice_to_sg
 
 
@@ -146,6 +146,7 @@ def select_datasets_on_crystal_id(experiments, reflections, crystal_id):
     return experiments, reflections
 
 
+@dials.util.show_mail_handle_errors()
 def run(args=None):
     usage = "dials.refine_bravais_settings indexed.expt indexed.refl [options]"
 
@@ -181,6 +182,10 @@ def run(args=None):
     assert len(reflections) == 1
     reflections = reflections[0]
 
+    # Reduce what we pickle and send to workers by removing unused data
+    if "shoebox" in reflections:
+        del reflections["shoebox"]
+
     if len(experiments) == 0:
         parser.print_help()
         return
@@ -208,8 +213,8 @@ def run(args=None):
     prefix = params.output.prefix
     if prefix is None:
         prefix = ""
-    summary_file = "%sbravais_summary.json" % prefix
-    logger.info("Saving summary as %s" % summary_file)
+    summary_file = f"{prefix}bravais_summary.json"
+    logger.info("Saving summary as %s", summary_file)
     with open(os.path.join(params.output.directory, summary_file), "w") as fh:
         json.dump(refined_settings.as_dict(), fh)
 
@@ -217,7 +222,7 @@ def run(args=None):
         expts = subgroup.refined_experiments
         soln = int(subgroup.setting_number)
         bs_json = "%sbravais_setting_%i.expt" % (prefix, soln)
-        logger.info("Saving solution %i as %s" % (soln, bs_json))
+        logger.info("Saving solution %i as %s", soln, bs_json)
         expts.as_file(os.path.join(params.output.directory, bs_json))
 
 

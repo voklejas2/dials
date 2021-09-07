@@ -1,24 +1,23 @@
-# coding: utf-8
 #
 # Known issues: Recentering on resize and when switching between
 # different image types.  Ring centre on image switch.
 
 
-from __future__ import absolute_import, division, print_function
-
 import imp
 import math
 import os
+
 import wx
 
-from . import pyslip
-from . import tile_generation
+from boost_adaptbx.boost.python import c_sizeof
+from rstbx.viewer import image as rv_image
+from rstbx.viewer import settings as rv_settings
+from wxtbx import bitmaps
+
 from ..rstbx_frame import EVT_EXTERNAL_UPDATE
 from ..rstbx_frame import XrayFrame as XFBaseClass
-from rstbx.viewer import settings as rv_settings, image as rv_image
-from wxtbx import bitmaps
-from boost.python import c_sizeof
-from rstbx.viewer.frame import SettingsFrame
+from . import pyslip, tile_generation
+from .calibration_frame import SBSettingsFrame
 
 pyslip._Tiles = tile_generation._Tiles
 
@@ -27,7 +26,7 @@ int_bits = c_sizeof("int") * 8
 MASK_VAL = -(2 ** (int_bits - 1))
 
 
-class chooser_wrapper(object):
+class chooser_wrapper:
     def __init__(self, image_set, index):
         self.image_set = image_set
         self.path = os.path.basename(image_set.get_path(index))
@@ -124,7 +123,7 @@ class XrayFrame(XFBaseClass):
         self._img = None
 
         self._distl = None
-        self.toolbar = self.CreateToolBar(style=wx.TB_3DBUTTONS | wx.TB_TEXT)
+        self.toolbar = self.CreateToolBar(style=wx.TB_TEXT)
         self.setup_toolbar()
         self.toolbar.Realize()
         self.mb = wx.MenuBar()
@@ -159,14 +158,14 @@ class XrayFrame(XFBaseClass):
         # does not guarantee window creation. The frame calls Raise() so that it
         # will be shown. This addresses an error with PySlip requiring the
         # window to exist before instantiation.
-        super(XrayFrame, self).Show()
+        super().Show()
         self.Raise()
 
     def setup_toolbar(self):
         XFBaseClass.setup_toolbar(self)
 
-        btn = self.toolbar.AddLabelTool(
-            id=wx.ID_SAVEAS,
+        btn = self.toolbar.AddTool(
+            toolId=wx.ID_SAVEAS,
             label="Save As...",
             bitmap=bitmaps.fetch_icon_bitmap("actions", "save_all", 32),
             shortHelp="Save As...",
@@ -201,7 +200,7 @@ class XrayFrame(XFBaseClass):
                 lon, lat
             )
 
-            posn_str = "Picture:  slow=%.3f / fast=%.3f pixels." % (
+            posn_str = "Picture:  slow={:.3f} / fast={:.3f} pixels.".format(
                 slow_picture,
                 fast_picture,
             )
@@ -212,7 +211,7 @@ class XrayFrame(XFBaseClass):
                 else:
                     readout = -1
 
-                coords_str = "slow=%.3f / fast=%.3f pixels" % (coords[0], coords[1])
+                coords_str = f"slow={coords[0]:.3f} / fast={coords[1]:.3f} pixels"
                 if len(coords) == 2:
                     posn_str += " Readout: " + coords_str + "."
                 elif readout >= 0:
@@ -251,7 +250,7 @@ class XrayFrame(XFBaseClass):
                     reso = self.pyslip.tiles.get_resolution(coords[1], coords[0])
 
                 if reso is not None:
-                    posn_str += " Resolution: %.3f" % (reso)
+                    posn_str += f" Resolution: {reso:.3f}"
 
             self.statusbar.SetStatusText(posn_str)
         else:
@@ -440,7 +439,6 @@ class XrayFrame(XFBaseClass):
 
         self._img = img  # XXX
 
-        self.settings_frame.set_image(self._img)
         self.update_statusbar()  # XXX Not always working?
         # self.Layout()
 
@@ -523,77 +521,12 @@ class XrayFrame(XFBaseClass):
         elif isinstance(file_name_or_data, chooser_wrapper):
             return str(file_name_or_data)
         else:
-            return super(XrayFrame, self).get_key(file_name_or_data)
+            return super().get_key(file_name_or_data)
 
     def update_settings(self, layout=True):
-        # XXX The zoom level from the settings panel are not taken into
-        # account here.
-
-        new_brightness = self.settings.brightness
-        new_color_scheme = self.settings.color_scheme
-        if (
-            new_brightness is not self.pyslip.tiles.current_brightness
-            or new_color_scheme is not self.pyslip.tiles.current_color_scheme
-        ):
-            self.pyslip.tiles.update_brightness(new_brightness, new_color_scheme)
-
-        if self.settings.show_beam_center:
-            if self.beam_layer is None and hasattr(self, "beam_center_cross_data"):
-                self.beam_layer = self.pyslip.AddPolygonLayer(
-                    self.beam_center_cross_data,
-                    name="<beam_layer>",
-                    show_levels=[-2, -1, 0, 1, 2, 3, 4, 5],
-                    update=False,
-                )
-        elif self.beam_layer is not None:
-            self.pyslip.DeleteLayer(self.beam_layer, update=False)
-            self.beam_layer = None
-
-        if self.settings.show_spotfinder_spots:
-            if self.spotfinder_layer is None:
-                tdata = self.pyslip.tiles.get_spotfinder_data(self.params)
-                self.spotfinder_layer = self.pyslip.AddPointLayer(
-                    tdata,
-                    color="green",
-                    name="<spotfinder_layer>",
-                    radius=2,
-                    renderer=self.pyslip.LightweightDrawPointLayer,
-                    show_levels=[-2, -1, 0, 1, 2, 3, 4, 5],
-                )
-        elif self.spotfinder_layer is not None:
-            self.pyslip.DeleteLayer(self.spotfinder_layer)
-            self.spotfinder_layer = None
-
-        if self.settings.show_effective_tiling:
-            if self.tile_layer is None:
-                tdata, ttdata = self.pyslip.tiles.get_effective_tiling_data(self.params)
-                self.tile_layer = self.pyslip.AddPolygonLayer(
-                    tdata, name="<tiling_layer>", show_levels=[-2, -1, 0, 1, 2, 3, 4, 5]
-                )
-            if self.tile_text_layer is None:
-                self.tile_text_layer = self.pyslip.AddTextLayer(
-                    ttdata,
-                    name="<tiling_text_layer>",
-                    show_levels=[-2, -1, 0, 1, 2, 3, 4, 5],
-                    colour="#0000FFA0",
-                    textcolour="#0000FFA0",
-                    fontsize=30,
-                    placement="cc",
-                    radius=0,
-                )
-        elif (self.tile_layer is not None) and (self.tile_text_layer is not None):
-            self.pyslip.DeleteLayer(self.tile_layer)
-            self.tile_layer = None
-            self.pyslip.DeleteLayer(self.tile_text_layer)
-            self.tile_text_layer = None
-
-        if hasattr(self, "user_callback"):
-            self.user_callback(self)
-        self.pyslip.Update()  # triggers redraw
+        raise NotImplementedError()
 
     def OnCalibration(self, event):
-        from rstbx.slip_viewer.calibration_frame import SBSettingsFrame
-
         if not self._calibration_frame:
             self._calibration_frame = SBSettingsFrame(
                 self, wx.ID_ANY, "Quadrant calibration", style=wx.CAPTION | wx.CLOSE_BOX
@@ -723,7 +656,7 @@ class XrayFrame(XFBaseClass):
 
     def OnSaveAs(self, event):
         ### XXX TODO: Save overlays
-        ### XXX TODO: Fix bug where multi-asic images are slightly cropped due to tranformation error'
+        ### XXX TODO: Fix bug where multi-asic images are slightly cropped due to transformation error'
 
         import PIL.Image as Image
 
@@ -754,8 +687,8 @@ class XrayFrame(XFBaseClass):
 
             flex_img = get_flex_image_multipanel(
                 brightness=self.settings.brightness / 100,
-                panels=detector,
-                raw_data=data,
+                detector=detector,
+                image_data=data,
                 beam=raw_img.get_beam(),
             )
 
@@ -838,7 +771,7 @@ class XrayFrame(XFBaseClass):
                 row_list = range(start_y_tile, stop_y_tile)
                 y_pix_start = start_y_tile * self.pyslip.tile_size_y - y_offset
 
-                bitmap = wx.EmptyBitmap(x2 - x1, y2 - y1)
+                bitmap = wx.Bitmap(x2 - x1, y2 - y1)
                 dc = wx.MemoryDC()
                 dc.SelectObject(bitmap)
 
@@ -854,9 +787,9 @@ class XrayFrame(XFBaseClass):
 
                 dc.SelectObject(wx.NullBitmap)
 
-                wximg = wx.ImageFromBitmap(bitmap)
+                wximg = bitmap.ConvertToImage()
                 imageout = Image.new("RGB", (wximg.GetWidth(), wximg.GetHeight()))
-                imageout.frombytes(wximg.GetData())
+                imageout.frombytes(bytes(wximg.GetData()))
 
                 self.pyslip.tiles.UseLevel(currentZoom)
 
@@ -894,8 +827,8 @@ class XrayFrame(XFBaseClass):
 
             flex_img = get_flex_image_multipanel(
                 brightness=self.settings.brightness / 100,
-                panels=detector,
-                raw_data=data,
+                detector=detector,
+                image_data=data,
                 beam=raw_img.get_beam(),
             )
 
@@ -937,8 +870,10 @@ class XrayFrame(XFBaseClass):
                         if layer.map_rel:
                             pp = []
                             for pelement in p:
-                                fs = self.pyslip.tiles.map_relative_to_picture_fast_slow(
-                                    pelement[0], pelement[1]
+                                fs = (
+                                    self.pyslip.tiles.map_relative_to_picture_fast_slow(
+                                        pelement[0], pelement[1]
+                                    )
                                 )
                                 pp.append(
                                     (
@@ -1032,8 +967,10 @@ class XrayFrame(XFBaseClass):
                         path = pdf_canvas.beginPath()
                         for i, pp in enumerate(p):
                             if layer.map_rel:
-                                fs = self.pyslip.tiles.map_relative_to_picture_fast_slow(
-                                    pp[0], pp[1]
+                                fs = (
+                                    self.pyslip.tiles.map_relative_to_picture_fast_slow(
+                                        pp[0], pp[1]
+                                    )
                                 )
                             else:
                                 raise NotImplementedError(
@@ -1105,6 +1042,8 @@ class XrayFrame(XFBaseClass):
                         else:
                             txt = pdf_canvas.beginText(x=fs[0] - (w / 2), y=fs[1])
                         txt.setFont(fontname, fontsize * scale)
+                        if isinstance(textcolour, wx.Colour):
+                            textcolour = tuple(textcolour)
                         txt.setFillColor(textcolour)
                         txt.setStrokeColor(textcolour)
                         txt.textLine(tdata)
@@ -1113,11 +1052,3 @@ class XrayFrame(XFBaseClass):
             pdf_canvas.save()
 
         self.update_statusbar("Writing " + file_name + "..." + " Done.")
-
-
-def override_SF_set_image(self, image):
-    self.Layout()
-    self.Fit()
-
-
-SettingsFrame.set_image = override_SF_set_image

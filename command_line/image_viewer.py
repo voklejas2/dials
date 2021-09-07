@@ -1,18 +1,18 @@
 # LIBTBX_PRE_DISPATCHER_INCLUDE_SH export PHENIX_GUI_ENVIRONMENT=1
 
-from __future__ import absolute_import, division, print_function
 
 import pickle
 import sys
 
-import dials.util.log
 import iotbx.phil
+
+import dials.util.log
 from dials.util.image_viewer.spotfinder_wrap import spot_wrapper
 from dials.util.options import OptionParser, flatten_experiments, flatten_reflections
 
 help_message = """
 
-This program can be used for viewing diffraction images, optionally overlayed
+This program can be used for viewing diffraction images, optionally overlaid
 with the results of spot finding, indexing or integration.
 
 Examples::
@@ -31,6 +31,8 @@ phil_scope = iotbx.phil.parse(
 brightness = 100
   .type = int
 color_scheme = *grayscale rainbow heatmap invert
+  .type = choice
+projection = lab *image
   .type = choice
 show_beam_center = True
   .type = bool
@@ -60,6 +62,8 @@ show_mask = False
   .type = bool
 show_basis_vectors = True
   .type = bool
+basis_vector_scale = 10
+  .type = int(value_min=1, value_max=20)
 display = *image mean variance dispersion sigma_b \
           sigma_s threshold global_threshold
   .type = choice
@@ -77,9 +81,11 @@ gain = 1
   .type = float(value_min=0)
   .help = "Set gain for the thresholding algorithm. This does not override the"
           "detector's panel gain, but acts as a multiplier for it."
-sum_images = 1
+stack_images = 1
   .type = int(value_min=1)
   .expert_level = 2
+stack_mode = max mean *sum
+  .type = choice
 d_min = None
   .type = float(value_min=0)
 mask = None
@@ -153,7 +159,7 @@ load_models = True
 
 zmq_endpoint = None
   .type = str
-  .help = "The endpoint to bind a zeromq PULL socket to, for recieving commands"
+  .help = "The endpoint to bind a zeromq PULL socket to, for receiving commands"
   .expert_level = 3
 """,
     process_includes=True,
@@ -165,22 +171,8 @@ def show_image_viewer(params, experiments, reflections):
     wrapper.display(experiments=experiments, reflections=reflections)
 
 
-if __name__ == "__main__":
-    import wx  # It is unclear why, but it is crucial that wx
-
-    # is imported before the parser is run.
-    # Otherwise viewer will crash when run with
-    # .cbf image as parameter on linux with wxPython>=3
-    # The problem can be traced to
-    # dxtbx/format/FormatCBFFull.py:49
-    #  ''' from iotbx.detectors.cbf import CBFImage '''
-    # and the wx import must happen before that import.
-    WX3 = wx.VERSION[0] == 3
-    if not WX3:
-        # HACK: Monkeypatch this renamed function so we can trick wxtbx's IntCtrl
-        #       without having to alter the package
-        wx.SystemSettings_GetColour = wx.SystemSettings.GetColour
-
+@dials.util.show_mail_handle_errors()
+def run(args=None):
     dials.util.log.print_banner()
     usage_message = "dials.image_viewer models.expt [observations.refl]"
     parser = OptionParser(
@@ -191,7 +183,7 @@ if __name__ == "__main__":
         read_experiments_from_images=True,
         epilog=help_message,
     )
-    params, options = parser.parse_args(show_diff_phil=True)
+    params, options = parser.parse_args(args, show_diff_phil=True)
     experiments = [x.data for x in params.input.experiments]
     reflections = flatten_reflections(params.input.reflections)
 
@@ -212,3 +204,7 @@ if __name__ == "__main__":
             params.mask = pickle.load(f)
 
     show_image_viewer(params=params, reflections=reflections, experiments=experiments)
+
+
+if __name__ == "__main__":
+    run()

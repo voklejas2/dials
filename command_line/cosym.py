@@ -1,41 +1,40 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
 import random
 import sys
 
+import numpy as np
+
 import iotbx.phil
 from cctbx import sgtbx
+from xfel.clustering.cluster_groups import unit_cell_info
+
+from dials.algorithms.clustering.unit_cell import UnitCellCluster
+from dials.algorithms.symmetry.cosym import CosymAnalysis
+from dials.algorithms.symmetry.cosym.observers import register_default_cosym_observers
+from dials.array_family import flex
 from dials.command_line.symmetry import (
     apply_change_of_basis_ops,
     change_of_basis_ops_to_minimum_cell,
     eliminate_sys_absent,
 )
-from dials.array_family import flex
-from dials.util import show_mail_on_error, Sorry
-from dials.util.options import reflections_and_experiments_from_files
+from dials.util import Sorry, log, show_mail_handle_errors
+from dials.util.exclude_images import get_selection_for_valid_image_ranges
+from dials.util.filter_reflections import filtered_arrays_from_experiments_reflections
 from dials.util.multi_dataset_handling import (
     assign_unique_identifiers,
     parse_multiple_datasets,
     select_datasets_on_identifiers,
+    update_imageset_ids,
 )
 from dials.util.observer import Subject
-from dials.util.exclude_images import get_selection_for_valid_image_ranges
-from dials.util.filter_reflections import filtered_arrays_from_experiments_reflections
-from dials.util import log
-from dials.util.options import OptionParser
+from dials.util.options import OptionParser, reflections_and_experiments_from_files
 from dials.util.version import dials_version
-from dials.algorithms.symmetry.cosym.observers import register_default_cosym_observers
-from dials.algorithms.symmetry.cosym import CosymAnalysis
-from dials.algorithms.clustering.unit_cell import UnitCellCluster
-from xfel.clustering.cluster_groups import unit_cell_info
-
 
 logger = logging.getLogger("dials.command_line.cosym")
 
 phil_scope = iotbx.phil.parse(
     """\
-partiality_threshold = 0.99
+partiality_threshold = 0.4
   .type = float
   .help = "Use reflections with a partiality above the threshold."
 
@@ -84,9 +83,7 @@ output {
 
 class cosym(Subject):
     def __init__(self, experiments, reflections, params=None):
-        super(cosym, self).__init__(
-            events=["run_cosym", "performed_unit_cell_clustering"]
-        )
+        super().__init__(events=["run_cosym", "performed_unit_cell_clustering"])
         if params is None:
             params = phil_scope.extract()
         self.params = params
@@ -120,15 +117,31 @@ class cosym(Subject):
                 )
 
         # Map experiments and reflections to minimum cell
-        # Eliminate reflections that are systematically absent due to centring
-        # of the lattice, otherwise they would lead to non-integer miller indices
-        # when reindexing to a primitive setting
         cb_ops = change_of_basis_ops_to_minimum_cell(
             self._experiments,
             params.lattice_symmetry_max_delta,
             params.relative_length_tolerance,
             params.absolute_angle_tolerance,
         )
+        exclude = [
+            expt.identifier
+            for expt, cb_op in zip(self._experiments, cb_ops)
+            if not cb_op
+        ]
+        if len(exclude):
+            logger.info(
+                f"Rejecting {len(exclude)} datasets from cosym analysis "
+                f"(couldn't determine consistent cb_op to minimum cell):\n"
+                f"{exclude}",
+            )
+            self._experiments, self._reflections = select_datasets_on_identifiers(
+                self._experiments, self._reflections, exclude_datasets=exclude
+            )
+            cb_ops = list(filter(None, cb_ops))
+
+        # Eliminate reflections that are systematically absent due to centring
+        # of the lattice, otherwise they would lead to non-integer miller indices
+        # when reindexing to a primitive setting
         self._reflections = eliminate_sys_absent(self._experiments, self._reflections)
 
         self._experiments, self._reflections = apply_change_of_basis_ops(
@@ -144,7 +157,7 @@ class cosym(Subject):
         )
 
         datasets = [
-            ma.as_anomalous_array().merge_equivalents().array() for ma in datasets
+            ma.as_non_anomalous_array().merge_equivalents().array() for ma in datasets
         ]
         self.cosym_analysis = CosymAnalysis(datasets, self.params)
 
@@ -161,31 +174,13 @@ class cosym(Subject):
     @Subject.notify_event(event="run_cosym")
     def run(self):
         self.cosym_analysis.run()
+        reindexing_ops = self.cosym_analysis.reindexing_ops
 
-        space_groups = {}
-        reindexing_ops = {}
-        for dataset_id in self.cosym_analysis.reindexing_ops:
-            if 0 in self.cosym_analysis.reindexing_ops[dataset_id]:
-                cb_op = self.cosym_analysis.reindexing_ops[dataset_id][0]
-                reindexing_ops.setdefault(cb_op, [])
-                reindexing_ops[cb_op].append(dataset_id)
-            if dataset_id in self.cosym_analysis.space_groups:
-                space_groups.setdefault(
-                    self.cosym_analysis.space_groups[dataset_id], []
-                )
-                space_groups[self.cosym_analysis.space_groups[dataset_id]].append(
-                    dataset_id
-                )
-
-        logger.info("Space groups:")
-        for sg, datasets in space_groups.items():
-            logger.info(str(sg.info().reference_setting()))
-            logger.info(datasets)
-
+        # Log reindexing operators
         logger.info("Reindexing operators:")
-        for cb_op, datasets in reindexing_ops.items():
-            logger.info(cb_op)
-            logger.info(datasets)
+        for cb_op in set(reindexing_ops):
+            datasets = [i for i, o in enumerate(reindexing_ops) if o == cb_op]
+            logger.info(f"{cb_op}: {datasets}")
 
         self._apply_reindexing_operators(
             reindexing_ops, subgroup=self.cosym_analysis.best_subgroup
@@ -197,6 +192,7 @@ class cosym(Subject):
         This includes the cosym.json, reflections and experiments files."""
 
         reindexed_reflections = flex.reflection_table()
+        self._reflections = update_imageset_ids(self._experiments, self._reflections)
         for refl in self._reflections:
             reindexed_reflections.extend(refl)
         reindexed_reflections.reset_ids()
@@ -212,26 +208,28 @@ class cosym(Subject):
 
     def _apply_reindexing_operators(self, reindexing_ops, subgroup=None):
         """Apply the reindexing operators to the reflections and experiments."""
-        for cb_op, dataset_ids in reindexing_ops.items():
+        for dataset_id, cb_op in enumerate(reindexing_ops):
             cb_op = sgtbx.change_of_basis_op(cb_op)
+            logger.debug(
+                "Applying reindexing op %s to dataset %i", cb_op.as_xyz(), dataset_id
+            )
+            expt = self._experiments[dataset_id]
+            refl = self._reflections[dataset_id]
+            expt.crystal = expt.crystal.change_basis(cb_op)
             if subgroup is not None:
                 cb_op = subgroup["cb_op_inp_best"] * cb_op
-            for dataset_id in dataset_ids:
-                expt = self._experiments[dataset_id]
-                refl = self._reflections[dataset_id]
                 expt.crystal = expt.crystal.change_basis(cb_op)
-                if subgroup is not None:
-                    expt.crystal.set_space_group(
-                        subgroup["best_subsym"]
-                        .space_group()
-                        .build_derived_acentric_group()
-                    )
-                expt.crystal.set_unit_cell(
-                    expt.crystal.get_space_group().average_unit_cell(
-                        expt.crystal.get_unit_cell()
-                    )
+                expt.crystal.set_space_group(
+                    subgroup["best_subsym"].space_group().build_derived_acentric_group()
                 )
-                refl["miller_index"] = cb_op.apply(refl["miller_index"])
+            else:
+                expt.crystal = expt.crystal.change_basis(cb_op)
+            expt.crystal.set_unit_cell(
+                expt.crystal.get_space_group().average_unit_cell(
+                    expt.crystal.get_unit_cell()
+                )
+            )
+            refl["miller_index"] = cb_op.apply(refl["miller_index"])
 
     def _filter_min_reflections(self, experiments, reflections):
         identifiers = []
@@ -302,7 +300,8 @@ Examples::
 """
 
 
-def run(args):
+@show_mail_handle_errors()
+def run(args=None):
     usage = "dials.cosym [options] models.expt observations.refl"
 
     parser = OptionParser(
@@ -331,6 +330,7 @@ def run(args):
 
     if params.seed is not None:
         flex.set_random_seed(params.seed)
+        np.random.seed(params.seed)
         random.seed(params.seed)
 
     if not params.input.experiments or not params.input.reflections:
@@ -362,5 +362,4 @@ def run(args):
 
 
 if __name__ == "__main__":
-    with show_mail_on_error():
-        run(sys.argv[1:])
+    run()

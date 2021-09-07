@@ -5,7 +5,6 @@
 # FIXME Should maybe be scan varying
 # FIXME Don't know how XDS calculated the n_sigma
 
-from __future__ import absolute_import, division, print_function
 
 import collections
 import copy
@@ -13,13 +12,13 @@ import logging
 import math
 
 import scitbx.math
-import six
+
 from dials.array_family import flex
 
 logger = logging.getLogger(__name__)
 
 
-class ComputeEsdBeamDivergence(object):
+class ComputeEsdBeamDivergence:
     """Calculate the E.s.d of the beam divergence."""
 
     def __init__(self, detector, reflections, centroid_definition="s1"):
@@ -90,7 +89,7 @@ class ComputeEsdBeamDivergence(object):
         return flex.double(variance)
 
 
-class FractionOfObservedIntensity(object):
+class FractionOfObservedIntensity:
     """Calculate the fraction of observed intensity for different sigma_m."""
 
     def __init__(self, crystal, beam, detector, goniometer, scan, reflections):
@@ -182,14 +181,14 @@ class FractionOfObservedIntensity(object):
         return flex.log(R)
 
 
-class ComputeEsdReflectingRange(object):
+class ComputeEsdReflectingRange:
     """calculate the e.s.d of the reflecting range (mosaicity)."""
 
-    class Estimator(object):
+    class Estimator:
         """Estimate E.s.d reflecting range by maximum likelihood estimation."""
 
         def __init__(self, crystal, beam, detector, goniometer, scan, reflections):
-            """Initialise the optmization."""
+            """Initialise the optimization."""
             from scitbx import simplex
 
             # FIXME in here this code is very unstable or actually broken if
@@ -204,7 +203,6 @@ class ComputeEsdReflectingRange(object):
             # is used... @JMP please could we discuss? assert best method to get
             # sigma_m in that case is actually to look at present / absent
             # reflections as per how Mosflm does it...
-
             # Initialise the function used in likelihood estimation.
             self._R = FractionOfObservedIntensity(
                 crystal, beam, detector, goniometer, scan, reflections
@@ -228,7 +226,7 @@ class ComputeEsdReflectingRange(object):
             """The target for minimization."""
             return -flex.sum(self._R(math.exp(log_sigma[0])))
 
-    class CrudeEstimator(object):
+    class CrudeEstimator:
         """If the main estimator failed make a crude estimate"""
 
         def __init__(self, crystal, beam, detector, goniometer, scan, reflections):
@@ -281,7 +279,7 @@ class ComputeEsdReflectingRange(object):
             # Return the list of tau and zeta
             return flex.double(tau), flex.double(zeta2)
 
-    class ExtendedEstimator(object):
+    class ExtendedEstimator:
         """Try to estimate using knowledge of intensities"""
 
         def __init__(
@@ -307,7 +305,6 @@ class ComputeEsdReflectingRange(object):
             # Calculate zeta * (tau +- dphi / 2) / math.sqrt(2)
             self.e1 = (tau + dphi2) * flex.abs(zeta) / math.sqrt(2.0)
             self.e2 = (tau - dphi2) * flex.abs(zeta) / math.sqrt(2.0)
-            self.n = n
             self.indices = indices
             if len(self.e1) == 0:
                 raise RuntimeError(
@@ -316,9 +313,11 @@ class ComputeEsdReflectingRange(object):
 
             # Compute intensity
             self.K = flex.double()
+            self.nj = []
             for i0, i1 in zip(self.indices[:-1], self.indices[1:]):
-                selection = flex.size_t(range(i0, i1))
-                self.K.append(flex.sum(self.n.select(selection)))
+                nj = n[i0:i1]
+                self.K.append(flex.sum(nj))
+                self.nj.append(nj)
 
             # Set the starting values to try 1, 3 degrees seems sensible for
             # crystal mosaic spread
@@ -348,8 +347,6 @@ class ComputeEsdReflectingRange(object):
             # Calculate the two components to the fraction
             a = scitbx.math.erf(self.e1 / sigma_m)
             b = scitbx.math.erf(self.e2 / sigma_m)
-            n = self.n
-            K = self.K
 
             # Calculate the fraction of observed reflection intensity
             zi = (a - b) / 2.0
@@ -370,7 +367,7 @@ class ComputeEsdReflectingRange(object):
             # reflection as a whole. This results in the term log(Z)
             #
             # The second is the likelihood for each reflection modelling as a Poisson
-            # distribtution with shape given by sigma M. This gives sum(ci log(zi)) -
+            # distributions with shape given by sigma M. This gives sum(ci log(zi)) -
             # sum(ci)*log(sum(zi))
             #
             # If the reflection is recorded on 1 frame, the second component is zero
@@ -379,15 +376,12 @@ class ComputeEsdReflectingRange(object):
             # recorded.
             #
             L = 0
-            for j, (i0, i1) in enumerate(zip(self.indices[:-1], self.indices[1:])):
-                selection = flex.size_t(range(i0, i1))
-                zj = zi.select(selection)
-                nj = n.select(selection)
-                kj = K[j]
-                Z = flex.sum(zj)
-                # L += flex.sum(nj * flex.log(zj)) - kj * Z
-                # L += flex.sum(nj * flex.log(zj)) - kj * math.log(Z)
-                L += flex.sum(nj * flex.log(zj)) - kj * math.log(Z) + math.log(Z)
+            for (kj, nj, i0, i1) in zip(
+                self.K, self.nj, self.indices[:-1], self.indices[1:]
+            ):
+                zj = zi[i0:i1]
+                logZ = math.log(flex.sum(zj))
+                L += flex.sum(nj * flex.log(zj)) - kj * logZ + logZ
             logger.debug("Sigma M: %f, log(L): %f", sigma_m * 180 / math.pi, L)
 
             # Return the logarithm of r
@@ -479,7 +473,7 @@ class ComputeEsdReflectingRange(object):
         return self._sigma
 
 
-class ProfileModelCalculator(object):
+class ProfileModelCalculator:
     """Class to help calculate the profile model."""
 
     def __init__(
@@ -511,7 +505,7 @@ class ProfileModelCalculator(object):
 
         # stills images behave differently in here
         if goniometer is None or scan is None or scan.is_still():
-            logger.info("Using %d reflections for sigma calculation" % n_all)
+            logger.info("Using %d reflections for sigma calculation", n_all)
             logger.info("Calculating E.S.D Beam Divergence.")
             beam_divergence = ComputeEsdBeamDivergence(
                 detector, reflections, centroid_definition
@@ -537,9 +531,7 @@ class ProfileModelCalculator(object):
             reflections = reflections.select(flex.abs(zeta) >= min_zeta)
             n_use = reflections.size()
 
-            logger.info(
-                "Using %d / %d reflections for sigma calculation" % (n_use, n_all)
-            )
+            logger.info("Using %d / %d reflections for sigma calculation", n_use, n_all)
             logger.info("Calculating E.S.D Beam Divergence.")
             beam_divergence = ComputeEsdBeamDivergence(
                 detector, reflections, centroid_definition
@@ -572,7 +564,7 @@ class ProfileModelCalculator(object):
         return self._sigma_m
 
 
-class ScanVaryingProfileModelCalculator(object):
+class ScanVaryingProfileModelCalculator:
     """Class to help calculate the profile model."""
 
     def __init__(
@@ -625,7 +617,7 @@ class ScanVaryingProfileModelCalculator(object):
             index_list[z0].append(i)
         reflection_list = {
             key: reflections.select(flex.size_t(value))
-            for key, value in six.iteritems(index_list)
+            for key, value in index_list.items()
         }
 
         # The range of frames

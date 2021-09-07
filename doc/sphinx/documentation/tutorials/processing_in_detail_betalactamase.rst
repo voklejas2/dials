@@ -1,8 +1,8 @@
 .. raw:: html
 
-  <a href="https://dials.github.io/dials-1.14/documentation/tutorials/processing_in_detail_betalactamase.html" class="new-documentation">
-  This tutorial requires a DIALS 2.0 installation.<br/>
-  Please click here to go to the tutorial for DIALS 1.14.
+  <a href="https://dials.github.io/dials-2.2/documentation/tutorials/processing_in_detail_betalactamase.html" class="new-documentation">
+  This tutorial requires a DIALS 3 installation.<br/>
+  Please click here to go to the tutorial for DIALS 2.2.
   </a>
 
 Processing in Detail
@@ -514,8 +514,8 @@ a table and summary of the merging statistics are presented, which give indicati
 of the quality of the scaled dataset:
 
 .. dials_tutorial_include:: betalactamase/dials.scale.log
-    :start-at: ----------Merging statistics----------
-    :end-before: ----------Resolution cutoff estimates----------
+    :start-at: ----------Merging statistics by resolution bin----------
+    :end-before: Writing html report to dials.scale.html
 
 Looking at the resolution-dependent merging statistics, we can see that the
 completeness falls significantly beyond 1.4 Angstrom resolution.
@@ -570,7 +570,7 @@ Some of the most useful plots are
 
 * **Difference between observed and calculated centroids vs phi**,
   which shows how the average
-  residuals in each of X, Y, and φ vary as a fuction of φ.
+  residuals in each of X, Y, and φ vary as a function of φ.
   If scan-varying refinement has been successful in capturing the real changes
   during the scan then we would expect these plots to be straight lines.
 

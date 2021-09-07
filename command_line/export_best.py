@@ -1,9 +1,9 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
 import sys
 
 from libtbx.phil import parse
+
+from dials.util import Sorry, log, show_mail_handle_errors
 
 logger = logging.getLogger("dials.command_line.export_best")
 
@@ -39,7 +39,7 @@ phil_scope = parse(
 )
 
 
-class BestExporter(object):
+class BestExporter:
     def __init__(self, params, experiments, reflections):
         """
         Initialise the exporter
@@ -86,20 +86,17 @@ class BestExporter(object):
         imageset = experiment.imageset
         prefix = self.params.output.prefix
 
-        best.write_background_file(
-            "%s.dat" % prefix, imageset, n_bins=self.params.n_bins
-        )
+        best.write_background_file(f"{prefix}.dat", imageset, n_bins=self.params.n_bins)
         best.write_integrated_hkl(prefix, reflections)
-        best.write_par_file("%s.par" % prefix, experiment)
+        best.write_par_file(f"{prefix}.par", experiment)
 
 
-if __name__ == "__main__":
+@show_mail_handle_errors()
+def run(args=None):
     from dials.util.options import OptionParser, reflections_and_experiments_from_files
     from dials.util.version import dials_version
-    from dials.util import log
-    from dials.util import Sorry
 
-    usage = "dials.export models.expt reflections.pickle [options]"
+    usage = "dials.export models.expt reflections.refl [options]"
 
     parser = OptionParser(
         usage=usage,
@@ -110,7 +107,7 @@ if __name__ == "__main__":
     )
 
     # Get the parameters
-    params, options = parser.parse_args(show_diff_phil=False)
+    params, options = parser.parse_args(args, show_diff_phil=False)
 
     # Configure the logging
     log.config(logfile=params.output.log)
@@ -135,3 +132,7 @@ if __name__ == "__main__":
 
     exporter = BestExporter(params, experiments, reflections)
     exporter.export()
+
+
+if __name__ == "__main__":
+    run()

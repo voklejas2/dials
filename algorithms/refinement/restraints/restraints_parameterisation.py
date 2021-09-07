@@ -1,16 +1,16 @@
-from __future__ import absolute_import, division, print_function
-
 from collections import namedtuple
 
 from libtbx.phil import parse
-from dials.algorithms.refinement import DialsRefineConfigError
-from scitbx.array_family import flex
 from scitbx import sparse
+from scitbx.array_family import flex
 
-from dials.algorithms.refinement.restraints.restraints import SingleUnitCellTie
-from dials.algorithms.refinement.restraints.restraints import MeanUnitCellTie
-from dials.algorithms.refinement.restraints.restraints import LowMemoryMeanUnitCellTie
-from dials.algorithms.refinement.restraints.restraints import MedianUnitCellTie
+from dials.algorithms.refinement import DialsRefineConfigError
+from dials.algorithms.refinement.restraints.restraints import (
+    LowMemoryMeanUnitCellTie,
+    MeanUnitCellTie,
+    MedianUnitCellTie,
+    SingleUnitCellTie,
+)
 
 # PHIL options for unit cell restraints
 uc_phil_str = """
@@ -75,7 +75,7 @@ ParamIndex = namedtuple("ParamIndex", ["parameterisation", "istart"])
 RestraintIndex = namedtuple("RestraintIndex", ["restraint", "istart"])
 
 
-class RestraintsParameterisation(object):
+class RestraintsParameterisation:
     def __init__(
         self,
         detector_parameterisations=None,
@@ -194,7 +194,7 @@ class RestraintsParameterisation(object):
         elif target == "median":
             tie = MedianUnitCellTie(model_parameterisations=params, sigma=sigma)
         else:
-            raise DialsRefineConfigError("target type {} not available".format(target))
+            raise DialsRefineConfigError(f"target type {target} not available")
 
         # add to the restraint list along with the global parameter indices
         self._group_model_restraints.append(RestraintIndex(tie, istarts))

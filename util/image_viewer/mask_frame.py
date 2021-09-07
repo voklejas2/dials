@@ -1,18 +1,16 @@
-from __future__ import absolute_import, division, print_function
+import pickle
 
-import six.moves.cPickle as pickle
 import wx
-from wxtbx.phil_controls.floatctrl import FloatCtrl as _FloatCtrl
-
 from wx.lib.agw.floatspin import EVT_FLOATSPIN, FloatSpin
+
+import wxtbx
+from wxtbx import metallicbutton
 from wxtbx.phil_controls import EVT_PHIL_CONTROL
+from wxtbx.phil_controls.floatctrl import FloatCtrl as _FloatCtrl
 from wxtbx.phil_controls.intctrl import IntCtrl
 from wxtbx.phil_controls.strctrl import StrCtrl
-from wxtbx import metallicbutton
-import wxtbx
 
-# Temporary: Make a variable to allow dual API
-WX3 = wx.VERSION[0] == 3
+import dials.util.masking
 
 
 class FloatCtrl(_FloatCtrl):
@@ -26,7 +24,7 @@ class FloatCtrl(_FloatCtrl):
 
 class MaskSettingsFrame(wx.MiniFrame):
     def __init__(self, *args, **kwds):
-        super(MaskSettingsFrame, self).__init__(*args, **kwds)
+        super().__init__(*args, **kwds)
         szr = wx.BoxSizer(wx.VERTICAL)
         self.phil_params = args[0].params
         panel = MaskSettingsPanel(self)
@@ -41,7 +39,7 @@ class MaskSettingsFrame(wx.MiniFrame):
 
 class MaskSettingsPanel(wx.Panel):
     def __init__(self, *args, **kwds):
-        super(MaskSettingsPanel, self).__init__(*args, **kwds)
+        super().__init__(*args, **kwds)
 
         self.params = args[0].phil_params
 
@@ -176,7 +174,7 @@ class MaskSettingsPanel(wx.Panel):
         grid.Add(wx.StaticText(self, -1, ""), 0, wx.EXPAND)
 
         for range_id, (d_min, d_max) in enumerate(self.params.masking.resolution_range):
-            grid.Add(wx.StaticText(self, -1, "%.2f-%.2f" % (d_min, d_max)))
+            grid.Add(wx.StaticText(self, -1, f"{d_min:.2f}-{d_max:.2f}"))
             btn = metallicbutton.MetallicButton(
                 parent=self,
                 label="delete",
@@ -663,35 +661,29 @@ class MaskSettingsPanel(wx.Panel):
         else:
             return
 
-        print("Writing mask to %s" % self.params.output.mask)
+        print(f"Writing mask to {self.params.output.mask}")
         with open(self.params.output.mask, "wb") as fh:
             pickle.dump(mask, fh, protocol=pickle.HIGHEST_PROTOCOL)
 
     def OnSaveMaskParams(self, event):
-        from dials.util.masking import phil_scope
-
         file_name = self.params.output.mask_params
         with open(file_name, "w") as f:
-            print("Saving parameters to %s" % file_name)
-            phil_scope.fetch_diff(phil_scope.format(self.params.masking)).show(f)
+            print(f"Saving parameters to {file_name}")
+            dials.util.masking.phil_scope.fetch_diff(
+                dials.util.masking.phil_scope.format(self.params.masking)
+            ).show(f)
 
     def UpdateMask(self):
-
         image_viewer_frame = self.GetParent().GetParent()
-
-        # Generate the mask
-        from dials.util.masking import MaskGenerator
-
-        generator = MaskGenerator(self.params.masking)
-        imageset = image_viewer_frame.imagesets[0]  # XXX
-        mask = generator.generate(imageset)
-
+        mask = dials.util.masking.generate_mask(
+            image_viewer_frame.imagesets[0], self.params.masking
+        )
         image_viewer_frame.mask_image_viewer = mask
         image_viewer_frame.update_settings(layout=False)
 
     def OnLeftDown(self, event):
         if not event.ShiftDown():
-            click_posn = event.GetPositionTuple() if WX3 else event.GetPosition()
+            click_posn = event.GetPosition()
             if self._mode_rectangle:
                 self._rectangle_x0y0 = click_posn
                 self._rectangle_x1y1 = None
@@ -707,7 +699,7 @@ class MaskSettingsPanel(wx.Panel):
 
     def OnLeftUp(self, event):
         if not event.ShiftDown():
-            click_posn = event.GetPositionTuple() if WX3 else event.GetPosition()
+            click_posn = event.GetPosition()
 
             if self._mode_rectangle and self._rectangle_x0y0 is not None:
                 self._rectangle_x1y1 = click_posn
@@ -742,16 +734,14 @@ class MaskSettingsPanel(wx.Panel):
             if self._mode_rectangle:
                 if self._rectangle_x0y0 is not None:
                     x0, y0 = self._rectangle_x0y0
-                    x1, y1 = event.GetPositionTuple() if WX3 else event.GetPosition()
+                    x1, y1 = event.GetPosition()
                     self.DrawRectangle(x0, y0, x1, y1)
                     return
 
             elif self._mode_circle:
                 if self._circle_xy is not None:
                     xc, yc = self._circle_xy
-                    xedge, yedge = (
-                        event.GetPositionTuple() if WX3 else event.GetPosition()
-                    )
+                    xedge, yedge = event.GetPosition()
                     self.DrawCircle(xc, yc, xedge, yedge)
                     return
         event.Skip()
@@ -865,8 +855,9 @@ class MaskSettingsPanel(wx.Panel):
             point_.append((p0, p1))
         vertices = point_
 
-        from dials.util import masking
         from libtbx.utils import flat_list
+
+        from dials.util import masking
 
         region = masking.phil_scope.extract().untrusted[0]
         points = flat_list(vertices)

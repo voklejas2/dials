@@ -6,10 +6,11 @@
   the naive assumption that the relp is already in reflecting position
 """
 
-from __future__ import absolute_import, division, print_function
 
 from math import pi
+
 from scitbx.array_family import flex
+
 from dials.algorithms.spot_prediction import ScanStaticRayPredictor
 from dials.algorithms.spot_prediction import ScanStaticReflectionPredictor as sc
 from dials.algorithms.spot_prediction import ScanVaryingReflectionPredictor as sv
@@ -19,7 +20,7 @@ from dials.algorithms.spot_prediction import StillsReflectionPredictor as st
 TWO_PI = 2.0 * pi
 
 
-class ScansRayPredictor(object):
+class ScansRayPredictor:
     """
     Predict for a relp based on the current states of models of the
     experimental geometry. This is a wrapper for DIALS' C++
@@ -58,7 +59,7 @@ class ScansRayPredictor(object):
         return rays
 
 
-class ExperimentsPredictor(object):
+class ExperimentsPredictor:
     """
     Predict for relps based on the current states of models of the experimental
     geometry. This version manages multiple experiments, selecting the correct
@@ -162,7 +163,7 @@ class StillsExperimentsPredictor(ExperimentsPredictor):
         predictor.for_reflection_table(reflections, UB)
 
 
-class ExperimentsPredictorFactory(object):
+class ExperimentsPredictorFactory:
     @staticmethod
     def from_experiments(experiments, force_stills=False, spherical_relp=False):
 

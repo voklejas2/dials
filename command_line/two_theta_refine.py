@@ -1,41 +1,38 @@
-from __future__ import absolute_import, division, print_function
-
 import copy
 import datetime
 import logging
 import math
 import sys
 
+import iotbx.cif.model
 from cctbx import miller, sgtbx
+from dxtbx.model.experiment_list import Experiment, ExperimentList
 from libtbx.phil import parse
 from libtbx.utils import format_float_with_standard_uncertainty
-import iotbx.cif.model
 
-from dxtbx.model.experiment_list import Experiment, ExperimentList
+import dials.util
 from dials.algorithms.refinement.corrgram import create_correlation_plots
-from dials.algorithms.refinement.engine import refinery_phil_scope
 from dials.algorithms.refinement.engine import LevenbergMarquardtIterations as Refinery
-from dials.algorithms.refinement.refiner import Refiner
+from dials.algorithms.refinement.engine import refinery_phil_scope
 from dials.algorithms.refinement.parameterisation.crystal_parameters import (
     CrystalUnitCellParameterisation,
 )
 from dials.algorithms.refinement.parameterisation.parameter_report import (
     ParameterReporter,
 )
+from dials.algorithms.refinement.refiner import Refiner
 from dials.algorithms.refinement.two_theta_refiner import (
-    TwoThetaReflectionManager,
-    TwoThetaTarget,
     TwoThetaExperimentsPredictor,
     TwoThetaPredictionParameterisation,
+    TwoThetaReflectionManager,
+    TwoThetaTarget,
 )
 from dials.array_family import flex
-from dials.util import log
-from dials.util.version import dials_version
-from dials.util import show_mail_on_error
+from dials.util import log, tabulate
 from dials.util.filter_reflections import filter_reflection_table
-from dials.util.options import OptionParser, reflections_and_experiments_from_files
 from dials.util.multi_dataset_handling import parse_multiple_datasets
-from dials.util import tabulate
+from dials.util.options import OptionParser, reflections_and_experiments_from_files
+from dials.util.version import dials_version
 
 logger = logging.getLogger("dials.command_line.two_theta_refine")
 
@@ -94,6 +91,10 @@ phil_scope = parse(
       .help = "If integrated centroids are provided, filter these so that only"
               "those with both the 'integrated' and 'strong' flags are used"
 
+    partiality_threshold = 0.4
+      .type = float
+      .help = "Use only reflections with a partiality above this threshold."
+
     combine_crystal_models = True
       .type = bool
       .help = "When multiple experiments are provided as input, combine these to"
@@ -112,7 +113,7 @@ phil_scope = parse(
 working_phil = phil_scope.fetch()
 
 
-class Script(object):
+class Script:
     """A class for running the script."""
 
     def __init__(self):
@@ -186,7 +187,7 @@ class Script(object):
         reflections = reflections.select(mask)
 
         logger.info(
-            "{0} out of {1} reflections remain after filtering to keep only strong"
+            "{} out of {} reflections remain after filtering to keep only strong"
             " and integrated centroids".format(len(reflections), orig_len)
         )
         return reflections
@@ -278,8 +279,8 @@ class Script(object):
         rows = []
         names = ["a", "b", "c", "alpha", "beta", "gamma"]
         for n, p, e in zip(names, cell, esd):
-            rows.append([n, "%9.5f" % p, "%9.5f" % e])
-        rows.append(["\nvolume", "\n%9.5f" % vol, "\n%9.5f" % vol_esd])
+            rows.append([n, f"{p:9.5f}", f"{e:9.5f}"])
+        rows.append(["\nvolume", f"\n{vol:9.5f}", f"\n{vol_esd:9.5f}"])
         return tabulate(rows, header)
 
     @staticmethod
@@ -326,7 +327,7 @@ class Script(object):
                 "angle_gamma",
             ],
         ):
-            block["_cell_%s" % cifname] = format_float_with_standard_uncertainty(
+            block[f"_cell_{cifname}"] = format_float_with_standard_uncertainty(
                 cell, esd
             )
         block["_cell_volume"] = format_float_with_standard_uncertainty(
@@ -368,10 +369,13 @@ class Script(object):
         logger.info("Saving mmCIF information to %s", filename)
 
         block = iotbx.cif.model.block()
+        block["_audit.revision_id"] = 1
         block["_audit.creation_method"] = dials_version()
         block["_audit.creation_date"] = datetime.date.today().isoformat()
+        block["_entry.id"] = "two_theta_refine"
         #   block["_publ.section_references"] = '' # once there is a reference...
 
+        block["_cell.entry_id"] = "two_theta_refine"
         for cell, esd, cifname in zip(
             crystal.get_unit_cell().parameters(),
             crystal.get_cell_parameter_sd(),
@@ -384,12 +388,13 @@ class Script(object):
                 "angle_gamma",
             ],
         ):
-            block["_cell.%s" % cifname] = "%.8f" % cell
-            block["_cell.%s_esd" % cifname] = "%.8f" % esd
-        block["_cell.volume"] = "%f" % crystal.get_unit_cell().volume()
-        block["_cell.volume_esd"] = "%f" % crystal.get_cell_volume_sd()
+            block[f"_cell.{cifname}"] = f"{cell:.8f}"
+            block[f"_cell.{cifname}_esd"] = f"{esd:.8f}"
+        block["_cell.volume"] = f"{crystal.get_unit_cell().volume():f}"
+        block["_cell.volume_esd"] = f"{crystal.get_cell_volume_sd():f}"
 
         used_reflections = refiner.get_matches()
+        block["_cell_measurement.entry_id"] = "two_theta_refine"
         block["_cell_measurement.reflns_used"] = len(used_reflections)
         block["_cell_measurement.theta_min"] = (
             flex.min(used_reflections["2theta_obs.rad"]) * 180 / math.pi / 2
@@ -397,6 +402,10 @@ class Script(object):
         block["_cell_measurement.theta_max"] = (
             flex.max(used_reflections["2theta_obs.rad"]) * 180 / math.pi / 2
         )
+        block["_exptl_crystal.id"] = 1
+        block["_diffrn.id"] = "two_theta_refine"
+        block["_diffrn.crystal_id"] = 1
+        block["_diffrn_reflns.diffrn_id"] = "two_theta_refine"
         block["_diffrn_reflns.number"] = len(used_reflections)
         miller_span = miller.index_span(used_reflections["miller_index"])
         min_h, min_k, min_l = miller_span.min()
@@ -419,11 +428,11 @@ class Script(object):
         with open(filename, "w") as fh:
             cif.show(out=fh)
 
-    def run(self):
+    def run(self, args=None):
         """Execute the script."""
 
         # Parse the command line
-        params, _ = self.parser.parse_args(show_diff_phil=False)
+        params, _ = self.parser.parse_args(args, show_diff_phil=False)
 
         # set up global reflections list
         reflections = flex.reflection_table()
@@ -467,7 +476,7 @@ class Script(object):
 
         # Combine crystals?
         if params.refinement.combine_crystal_models and len(experiments) > 1:
-            logger.info("Combining {0} crystal models".format(len(experiments)))
+            logger.info("Combining %s crystal models", len(experiments))
             experiments = self.combine_crystals(experiments)
 
         # Filter integrated centroids?
@@ -477,7 +486,11 @@ class Script(object):
         # Filter data if scaled to remove outliers
         if "inverse_scale_factor" in reflections:
             try:
-                reflections = filter_reflection_table(reflections, ["scale"])
+                reflections = filter_reflection_table(
+                    reflections,
+                    ["scale"],
+                    partiality_threshold=params.refinement.partiality_threshold,
+                )
             except ValueError as e:
                 logger.warn(e)
                 logger.info(
@@ -492,7 +505,7 @@ class Script(object):
         if nexp == 1:
             logger.info("Performing refinement of a single Experiment...")
         else:
-            logger.info("Performing refinement of {} Experiments...".format(nexp))
+            logger.info(f"Performing refinement of {nexp} Experiments...")
         refiner.run()
 
         # get the refined experiments
@@ -518,9 +531,7 @@ class Script(object):
 
         # Save the refined experiments to file
         output_experiments_filename = params.output.experiments
-        logger.info(
-            "Saving refined experiments to {}".format(output_experiments_filename)
-        )
+        logger.info(f"Saving refined experiments to {output_experiments_filename}")
         experiments.as_file(output_experiments_filename)
 
         # Create correlation plots
@@ -539,7 +550,11 @@ class Script(object):
             self.generate_mmcif(crystals[0], refiner, filename=params.output.mmcif)
 
 
+@dials.util.show_mail_handle_errors()
+def run(args=None):
+    script = Script()
+    script.run(args)
+
+
 if __name__ == "__main__":
-    with show_mail_on_error():
-        script = Script()
-        script.run()
+    run()

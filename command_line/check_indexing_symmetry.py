@@ -1,20 +1,18 @@
-from __future__ import absolute_import, division, print_function
-
-import math
 import logging
-import sys
+import math
 
 import iotbx.phil
 from cctbx import sgtbx
 from cctbx.crystal import symmetry as crystal_symmetry
 from cctbx.miller import set as miller_set
 from cctbx.sgtbx import space_group as sgtbx_space_group
+from libtbx.utils import format_float_with_standard_uncertainty
+
 from dials.algorithms.symmetry import origin
 from dials.array_family import flex
+from dials.util import log, show_mail_handle_errors
 from dials.util.options import OptionParser, reflections_and_experiments_from_files
-from dials.util import log
 from dials.util.version import dials_version
-from libtbx.utils import format_float_with_standard_uncertainty
 
 logger = logging.getLogger("dials.command_line.check_indexing_symmetry")
 
@@ -183,9 +181,9 @@ def test_crystal_pointgroup_symmetry(reflections, experiment, params):
         else:
             ms = normalise_intensities(ms)
 
-    logger.info("Check symmetry operations on %d reflections:" % ms.size())
+    logger.info("Check symmetry operations on %d reflections:", ms.size())
     logger.info("")
-    logger.info("%20s %6s %5s" % ("Symop", "Nref", "CC"))
+    logger.info("%20s %6s %5s", "Symop", "Nref", "CC")
 
     true_symops = []
 
@@ -199,7 +197,7 @@ def test_crystal_pointgroup_symmetry(reflections, experiment, params):
                 true_symops.append(smx)
                 accept = "***"
         cc_str = format_cc_with_standard_error(cc, se)
-        logger.info("%20s %6d %s %s" % (smx, n_ref, cc_str, accept))
+        logger.info("%20s %6d %s %s", smx, n_ref, cc_str, accept)
 
     if params.symop_threshold:
         sg = sgtbx_space_group()
@@ -210,8 +208,8 @@ def test_crystal_pointgroup_symmetry(reflections, experiment, params):
         sg_symbols = sg.match_tabulated_settings()
         logger.info("")
         logger.info(
-            "Derived point group from symmetry operations: %s"
-            % sg_symbols.hermann_mauguin()
+            "Derived point group from symmetry operations: %s",
+            sg_symbols.hermann_mauguin(),
         )
         logger.info("")
 
@@ -261,7 +259,7 @@ def test_P1_crystal_indexing(reflections, experiment, params):
 
     logger.info("Checking HKL origin:")
     logger.info("")
-    logger.info("dH dK dL %6s %5s" % ("Nref", "CC"))
+    logger.info("dH dK dL %6s %5s", "Nref", "CC")
 
     if params.reference:
         reference = flex.reflection_table.from_file(params.reference)
@@ -286,14 +284,15 @@ def test_P1_crystal_indexing(reflections, experiment, params):
     for (h, k, l), cc, n, se in zip(offsets, ccs, n_refs, ses):
         if cc > params.symop_threshold or (h == k == l == 0):
             cc_str = format_cc_with_standard_error(cc, se)
-            logger.info("%2d %2d %2d %6d %s" % (h, k, l, n, cc_str))
+            logger.info("%2d %2d %2d %6d %s", h, k, l, n, cc_str)
 
     logger.info("")
 
     return
 
 
-def run(args):
+@show_mail_handle_errors()
+def run(args=None):
     usage = "dials.check_indexing_symmetry [options] indexed.expt indexed.refl"
 
     parser = OptionParser(
@@ -305,7 +304,7 @@ def run(args):
         epilog=help_message,
     )
 
-    params, options = parser.parse_args(show_diff_phil=True)
+    params, options = parser.parse_args(args, show_diff_phil=True)
 
     # Configure the logging
     log.config(logfile=params.output.log)
@@ -324,7 +323,7 @@ def run(args):
 
     # remove reflections with 0, 0, 0 index
     zero = reflections["miller_index"] == (0, 0, 0)
-    logger.info("Removing %d unindexed reflections" % zero.count(True))
+    logger.info("Removing %d unindexed reflections", zero.count(True))
     reflections = reflections.select(~zero)
 
     h, k, l = reflections["miller_index"].as_vec3_double().parts()
@@ -333,13 +332,13 @@ def run(args):
     k = k.iround()
     l = l.iround()
 
-    logger.info("Range on h: %d to %d" % (flex.min(h), flex.max(h)))
-    logger.info("Range on k: %d to %d" % (flex.min(k), flex.max(k)))
-    logger.info("Range on l: %d to %d" % (flex.min(l), flex.max(l)))
+    logger.info("Range on h: %d to %d", flex.min(h), flex.max(h))
+    logger.info("Range on k: %d to %d", flex.min(k), flex.max(k))
+    logger.info("Range on l: %d to %d", flex.min(l), flex.max(l))
 
     test_P1_crystal_indexing(reflections, experiment, params)
     test_crystal_pointgroup_symmetry(reflections, experiment, params)
 
 
 if __name__ == "__main__":
-    run(sys.argv[1:])
+    run()

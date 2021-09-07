@@ -1,13 +1,11 @@
-from __future__ import absolute_import, division, print_function
 import logging
 
 logger = logging.getLogger(__name__)
 
-from scitbx.array_family import flex
-from dials.algorithms.refinement import DialsRefineConfigError
-
-# PHIL
 from libtbx.phil import parse
+from scitbx.array_family import flex
+
+from dials.algorithms.refinement import DialsRefineConfigError
 
 phil_str = """
       min_nref_per_parameter = 5
@@ -42,7 +40,7 @@ phil_scope = parse(phil_str)
 def id_associated_refs(result):
 
     # There are usually 3 parts to results: gradients in X, Y and Z
-    vals = [v for v in result.values()]
+    vals = list(result.values())
     try:
         vals = [v.as_dense_vector() for v in vals]
     except AttributeError:
@@ -65,7 +63,7 @@ def count_associated_refs(result):
     return refs.count(True)
 
 
-class AutoReduce(object):
+class AutoReduce:
     """Checks for over-parameterisation of models and acts in that case.
 
     Tests each model parameterisation to ensure there are enough
@@ -144,8 +142,13 @@ class AutoReduce(object):
         ).iselection()
         if len(sel) > 0:
             names = ", ".join([self.param_names[i] for i in sel])
-            msg = "Too few reflections to parameterise {0}.\n".format(names)
-            msg += "Try modifying refinement.parameterisation.auto_reduction options"
+            msg = f"Too few reflections to parameterise {names}.\n"
+            msg += (
+                "Try setting "
+                "refinement.parameterisation.auto_reduction.action "
+                "to fix these parameters (=fix) or additionally remove the "
+                "associated reflections (=remove)."
+            )
             raise DialsRefineConfigError(msg)
 
     def check_and_fix(self):
@@ -162,7 +165,7 @@ class AutoReduce(object):
         isel = sel.iselection()
         if len(isel) > 0:
             names = ", ".join([self.param_names[i] for i in isel])
-            msg = "Too few reflections to parameterise {0}.\n".format(names)
+            msg = f"Too few reflections to parameterise {names}.\n"
             msg += "These parameters will be fixed for refinement."
             logger.warning(msg)
         self.pred_param.fix_params(sel)
@@ -223,7 +226,7 @@ class AutoReduce(object):
                 break
 
             names = ", ".join([self.param_names[i] for i in sel.iselection()])
-            msg = "Too few reflections to parameterise {0}.\n".format(names)
+            msg = f"Too few reflections to parameterise {names}.\n"
             msg += (
                 "These parameters will be fixed for refinement and "
                 "the associated reflections will be removed."

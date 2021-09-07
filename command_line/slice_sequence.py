@@ -1,10 +1,12 @@
-from __future__ import absolute_import, division, print_function
-
 from os.path import basename, splitext
 
-from dials.algorithms.refinement.refinement_helpers import calculate_frame_numbers
 from dxtbx.model.experiment_list import ExperimentList
-from dials.util import show_mail_on_error, Sorry
+
+import dials.util
+from dials.algorithms.refinement.refinement_helpers import calculate_frame_numbers
+from dials.array_family import flex
+from dials.util import Sorry
+from dials.util.multi_dataset_handling import generate_experiment_identifiers
 from dials.util.slice import slice_experiments, slice_reflections
 
 help_message = """
@@ -27,7 +29,6 @@ Examples::
     "image_range=1 20" "image_range=5 30"
 """
 
-# The phil scope
 from libtbx.phil import parse
 
 phil_scope = parse(
@@ -92,7 +93,7 @@ def calculate_block_ranges(scan, block_size):
     return image_ranges
 
 
-class Script(object):
+class Script:
     """A class for running the script."""
 
     def __init__(self):
@@ -114,13 +115,13 @@ class Script(object):
             epilog=help_message,
         )
 
-    def run(self):
+    def run(self, args=None):
         """Execute the script."""
 
         from dials.util.options import reflections_and_experiments_from_files
 
         # Parse the command line
-        params, options = self.parser.parse_args(show_diff_phil=True)
+        params, options = self.parser.parse_args(args, show_diff_phil=True)
         reflections, experiments = reflections_and_experiments_from_files(
             params.input.reflections, params.input.experiments
         )
@@ -157,33 +158,38 @@ class Script(object):
 
         # check if slicing into blocks
         if params.block_size is not None:
-            if slice_exps:
-                if len(experiments) > 1:
-                    raise Sorry(
-                        "For slicing into blocks please provide a single " "scan only"
-                    )
-                scan = experiments[0].scan
+            if not slice_exps:
+                raise Sorry(
+                    "For slicing into blocks, an experiment file must be provided"
+                )
+
+            if len(experiments) > 1:
+                raise Sorry("For slicing into blocks please provide a single scan only")
+            scan = experiments[0].scan
 
             # Having extracted the scan, calculate the blocks
             params.image_range = calculate_block_ranges(scan, params.block_size)
 
             # Do the slicing then recombine
-            if slice_exps:
-                sliced = [
-                    slice_experiments(experiments, [sr])[0] for sr in params.image_range
-                ]
-                sliced_experiments = ExperimentList()
-                for exp in sliced:
-                    sliced_experiments.append(exp)
+            sliced = [
+                slice_experiments(experiments, [sr])[0] for sr in params.image_range
+            ]
+            generate_experiment_identifiers(sliced)
+            sliced_experiments = ExperimentList(sliced)
 
             # slice reflections if present
             if slice_refs:
                 sliced = [
                     slice_reflections(reflections, [sr]) for sr in params.image_range
                 ]
-                sliced_reflections = sliced[0]
-                for i, rt in enumerate(sliced[1:]):
-                    rt["id"] += i + 1  # set id
+                sliced_reflections = flex.reflection_table()
+                identifiers = sliced_experiments.identifiers()
+                # resetting experiment identifiers
+                for i, rt in enumerate(sliced):
+                    for k in rt.experiment_identifiers().keys():
+                        del rt.experiment_identifiers()[k]
+                    rt["id"] = flex.int(rt.size(), i)  # set id
+                    rt.experiment_identifiers()[i] = identifiers[i]
                     sliced_reflections.extend(rt)
 
         else:
@@ -203,11 +209,11 @@ class Script(object):
                 if not bname:
                     bname = "experiments"
                 if len(params.image_range) == 1 and params.image_range[0] is not None:
-                    ext = "_{0}_{1}.expt".format(*params.image_range[0])
+                    ext = "_{}_{}.expt".format(*params.image_range[0])
                 else:
                     ext = "_sliced.expt"
                 output_experiments_filename = bname + ext
-            print("Saving sliced experiments to {}".format(output_experiments_filename))
+            print(f"Saving sliced experiments to {output_experiments_filename}")
 
             sliced_experiments.as_file(output_experiments_filename)
 
@@ -221,20 +227,22 @@ class Script(object):
                 if not bname:
                     bname = "reflections"
                 if len(params.image_range) == 1 and params.image_range[0] is not None:
-                    ext = "_{0}_{1}.refl".format(*params.image_range[0])
+                    ext = "_{}_{}.refl".format(*params.image_range[0])
                 else:
                     ext = "_sliced.refl"
                 output_reflections_filename = bname + ext
 
-            print(
-                "Saving sliced reflections to {0}".format(output_reflections_filename)
-            )
+            print(f"Saving sliced reflections to {output_reflections_filename}")
             sliced_reflections.as_file(output_reflections_filename)
 
         return
 
 
+@dials.util.show_mail_handle_errors()
+def run(args=None):
+    script = Script()
+    script.run(args)
+
+
 if __name__ == "__main__":
-    with show_mail_on_error():
-        script = Script()
-        script.run()
+    run()

@@ -1,12 +1,11 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
-import six.moves.cPickle as pickle
+import pickle
 import sys
+
+from libtbx.phil import parse
 
 import dials.util
 import dials.util.log
-from libtbx.phil import parse
 
 logger = logging.getLogger("dials.command_line.model_background")
 
@@ -90,7 +89,7 @@ phil_scope = parse(
 )
 
 
-class ImageGenerator(object):
+class ImageGenerator:
     """
     Generate diagnostic images
     """
@@ -118,7 +117,7 @@ class ImageGenerator(object):
             if bounded and vmax is None:
                 boundaries = {
                     "vmin": 0,
-                    "vmax": sorted(list(image))[int(0.99 * len(image))],
+                    "vmax": sorted(image)[int(0.99 * len(image))],
                 }
             elif bounded:
                 boundaries = {"vmin": 0, "vmax": vmax}
@@ -132,7 +131,7 @@ class ImageGenerator(object):
                 cb = pylab.colorbar()
                 cb.ax.tick_params(labelsize=8)
             logger.info(
-                "Saving %s image for panel %d to %s_%d.png" % (name, i, filename, i)
+                "Saving %s image for panel %d to %s_%d.png", name, i, filename, i
             )
             pylab.savefig("%s_%d.png" % (filename, i), dpi=600, bbox_inches="tight")
 
@@ -187,7 +186,7 @@ class ImageGenerator(object):
         self._save_plot("polar model", filename, lambda m: m.polar_model, bounded=False)
 
 
-class Script(object):
+class Script:
     """A class for running the script."""
 
     def __init__(self):
@@ -201,15 +200,15 @@ class Script(object):
             usage=usage, phil=phil_scope, epilog=help_message, read_experiments=True
         )
 
-    def run(self):
+    def run(self, args=None):
         """Execute the script."""
-        from dials.util.command_line import heading
-        from dials.array_family import flex
-        from dials.util.options import flatten_experiments
         from dials.algorithms.background.modeller import BackgroundModeller
+        from dials.array_family import flex
+        from dials.util.command_line import heading
+        from dials.util.options import flatten_experiments
 
         # Parse the command line
-        params, options = self.parser.parse_args(show_diff_phil=False)
+        params, options = self.parser.parse_args(args, show_diff_phil=False)
 
         # Configure the logging
         dials.util.log.config(verbosity=options.verbose, logfile=params.output.log)
@@ -262,7 +261,7 @@ class Script(object):
         model = modeller.compute()
 
         # Save the background model
-        logger.info("Saving background model to %s" % params.output.model)
+        logger.info("Saving background model to %s", params.output.model)
         from dials.algorithms.background.gmodel import StaticBackgroundModel
 
         static_model = StaticBackgroundModel()
@@ -283,7 +282,11 @@ class Script(object):
         # image_generator.save_polar_model(params.output.polar_model_image_prefix)
 
 
+@dials.util.show_mail_handle_errors()
+def run(args=None):
+    script = Script()
+    script.run(args)
+
+
 if __name__ == "__main__":
-    with dials.util.show_mail_on_error():
-        script = Script()
-        script.run()
+    run()

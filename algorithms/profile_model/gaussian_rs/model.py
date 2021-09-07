@@ -1,10 +1,9 @@
-from __future__ import absolute_import, division, print_function
-
 import logging
 
-from dials.model.experiment.profile import ProfileModelExt
 from libtbx.phil import parse
+
 from dials.array_family import flex
+from dials.model.experiment.profile import ProfileModelExt
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +125,7 @@ class Model(ProfileModelExt):
     def from_dict(cls, obj):
         """Convert the profile model from a dictionary."""
         if obj["__id__"] != "gaussian_rs":
-            raise RuntimeError("expected __id__ gaussian_rs, got %s" % obj["__id__"])
+            raise RuntimeError(f"expected __id__ gaussian_rs, got {obj['__id__']}")
         n_sigma = obj["n_sigma"]
         sigma_b = obj["sigma_b"]
         sigma_m = obj["sigma_m"]
@@ -275,8 +274,8 @@ class Model(ProfileModelExt):
                 "or set using the parameters sigma_b and sigma_m."
             )
         logger.info("Creating profile model with parameters:")
-        logger.info("  sigma_b: %f" % sigma_b)
-        logger.info("  sigma_m: %f" % sigma_m)
+        logger.info("  sigma_b: %f", sigma_b)
+        logger.info("  sigma_m: %f", sigma_m)
         return cls(
             params=params, n_sigma=n_sigma, sigma_b=sigma_b, sigma_m=sigma_m, deg=True
         )
@@ -307,8 +306,6 @@ class Model(ProfileModelExt):
         """
         from dials.algorithms.profile_model.gaussian_rs.calculator import (
             ProfileModelCalculator,
-        )
-        from dials.algorithms.profile_model.gaussian_rs.calculator import (
             ScanVaryingProfileModelCalculator,
         )
 
@@ -416,7 +413,7 @@ class Model(ProfileModelExt):
         margin=1,
         force_static=False,
         padding=0,
-        **kwargs
+        **kwargs,
     ):
         """
         Given an experiment, predict the reflections.
@@ -428,6 +425,7 @@ class Model(ProfileModelExt):
         :param scan: The scan model
         """
         from dxtbx.model.experiment_list import Experiment
+
         from dials.algorithms.spot_prediction.reflection_predictor import (
             ReflectionPredictor,
         )
@@ -487,7 +485,7 @@ class Model(ProfileModelExt):
         goniometer=None,
         scan=None,
         sigma_b_multiplier=2.0,
-        **kwargs
+        **kwargs,
     ):
         """Given an experiment and list of reflections, compute the
         bounding box of the reflections on the detector (and image frames).
@@ -531,7 +529,7 @@ class Model(ProfileModelExt):
         goniometer=None,
         scan=None,
         image_volume=None,
-        **kwargs
+        **kwargs,
     ):
         """
         Given an experiment and list of reflections, compute the
@@ -590,10 +588,11 @@ class Model(ProfileModelExt):
 
         # Define a function to create the fitting class
         def wrapper(experiment):
+            from math import ceil
+
             from dials.algorithms.profile_model.gaussian_rs import (
                 GaussianRSProfileModeller,
             )
-            from math import ceil
 
             # Return if no scan or gonio
             if (
@@ -653,7 +652,7 @@ class Model(ProfileModelExt):
             [
                 "Profile model:",
                 "    type: gaussian_rs",
-                "    delta_b (sigma_b): %f (%f)" % (self.delta_b(), self.sigma_b()),
-                "    delta_m (sigma_m): %f (%f)" % (self.delta_m(), self.sigma_m()),
+                f"    delta_b (sigma_b): {self.delta_b():f} ({self.sigma_b():f})",
+                f"    delta_m (sigma_m): {self.delta_m():f} ({self.sigma_m():f})",
             ]
         )

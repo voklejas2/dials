@@ -1,24 +1,20 @@
-from __future__ import absolute_import, division, print_function
-
 import os
 
 from cctbx import sgtbx
+from dxtbx.model import Crystal
+from dxtbx.model.experiment_list import ExperimentListFactory
+from iotbx.xds import integrate_hkl, spot_xds
 from libtbx.phil import parse
-from iotbx.xds import integrate_hkl
-from iotbx.xds import spot_xds
 from rstbx.cftbx.coordinate_frame_helpers import align_reference_frame
 from scitbx import matrix
 
-from dxtbx.model import Crystal
-from dxtbx.model.experiment_list import ExperimentListFactory
-
 from dials.array_family import flex
-from dials.util import show_mail_on_error
+from dials.util import show_mail_handle_errors
 from dials.util.command_line import Command
 from dials.util.options import OptionParser
 
 
-class SpotXDSImporter(object):
+class SpotXDSImporter:
     """Class to import a spot.xds file to a reflection table."""
 
     def __init__(self, spot_xds):
@@ -36,7 +32,7 @@ class SpotXDSImporter(object):
             miller_index = handle.miller_index
         except AttributeError:
             miller_index = None
-        Command.end("Read {} spots from SPOT.XDS file.".format(len(centroid)))
+        Command.end(f"Read {len(centroid)} spots from SPOT.XDS file.")
 
         # Create the reflection list
         Command.start("Creating reflection list")
@@ -54,7 +50,7 @@ class SpotXDSImporter(object):
         if miller_index and params.remove_invalid:
             flags = flex.bool([h != (0, 0, 0) for h in table["miller_index"]])
             table = table.select(flags)
-        Command.end("Removed invalid reflections, %d remaining" % len(table))
+        Command.end(f"Removed invalid reflections, {len(table)} remaining")
 
         # Fill empty standard columns
         if params.add_standard_columns:
@@ -70,12 +66,12 @@ class SpotXDSImporter(object):
         # Output the table to pickle file
         if params.output.filename is None:
             params.output.filename = "spot_xds.refl"
-        Command.start("Saving reflection table to %s" % params.output.filename)
+        Command.start(f"Saving reflection table to {params.output.filename}")
         table.as_file(params.output.filename)
-        Command.end("Saved reflection table to %s" % params.output.filename)
+        Command.end(f"Saved reflection table to {params.output.filename}")
 
 
-class IntegrateHKLImporter(object):
+class IntegrateHKLImporter:
     """Class to import an integrate.hkl file to a reflection table."""
 
     def __init__(self, integrate_hkl, experiment):
@@ -102,7 +98,7 @@ class IntegrateHKLImporter(object):
             panel = flex.size_t(handle.iseg) - 1
         else:
             panel = flex.size_t(len(hkl), 0)
-        Command.end("Read %d reflections from INTEGRATE.HKL file." % len(hkl))
+        Command.end(f"Read {len(hkl)} reflections from INTEGRATE.HKL file.")
 
         if len(self._experiment.detector) > 1:
             for p_id, p in enumerate(self._experiment.detector):
@@ -119,7 +115,7 @@ class IntegrateHKLImporter(object):
         Command.start("Reindexing reflections")
         cb_op = sgtbx.change_of_basis_op(sgtbx.rt_mx(sgtbx.rot_mx(rdx.elems)))
         hkl = cb_op.apply(hkl)
-        Command.end("Reindexed %d reflections" % len(hkl))
+        Command.end(f"Reindexed {len(hkl)} reflections")
 
         # Create the reflection list
         Command.start("Creating reflection table")
@@ -135,14 +131,14 @@ class IntegrateHKLImporter(object):
         table["intensity.prf.variance"] = flex.pow2(sigma * peak / rlp)
         table["lp"] = 1.0 / rlp
         table["d"] = flex.double(uc.d(h) for h in hkl)
-        Command.end("Created table with {} reflections".format(len(table)))
+        Command.end(f"Created table with {len(table)} reflections")
 
         # Output the table to pickle file
         if params.output.filename is None:
             params.output.filename = "integrate_hkl.refl"
-        Command.start("Saving reflection table to %s" % params.output.filename)
+        Command.start(f"Saving reflection table to {params.output.filename}")
         table.as_file(params.output.filename)
-        Command.end("Saved reflection table to %s" % params.output.filename)
+        Command.end(f"Saved reflection table to {params.output.filename}")
 
     def derive_reindex_matrix(self, handle):
         """Derive a reindexing matrix to go from the orientation matrix used
@@ -167,7 +163,7 @@ class IntegrateHKLImporter(object):
         return matrix.sqr([int(round(e)) for e in (dA.inverse() * xA).elems])
 
 
-class XDSFileImporter(object):
+class XDSFileImporter:
     """Import a data block from xds."""
 
     def __init__(self, args):
@@ -195,11 +191,11 @@ class XDSFileImporter(object):
             print("-" * 80)
             print("The following command line arguments were not handled:")
             for filename in unhandled:
-                print("  %s" % filename)
+                print(f"  {filename}")
 
         # Print some general info
         print("-" * 80)
-        print("Read %d experiments from %s" % (len(experiments), xds_file))
+        print(f"Read {len(experiments)} experiments from {xds_file}")
 
         # Attempt to create scan-varying crystal model if requested
         if params.read_varying_crystal:
@@ -215,9 +211,9 @@ class XDSFileImporter(object):
             # Print some experiment info
             print("-" * 80)
             print("Experiment %d" % i)
-            print("  format: %s" % str(exp.imageset.get_format_class()))
-            print("  type: %s" % type(exp.imageset))
-            print("  num images: %d" % len(exp.imageset))
+            print(f"  format: {exp.imageset.get_format_class()}")
+            print(f"  type: {type(exp.imageset)}")
+            print(f"  num images: {len(exp.imageset)}")
 
             # Print some model info
             if options.verbose > 1:
@@ -247,13 +243,13 @@ class XDSFileImporter(object):
         if params.output.filename is None:
             params.output.filename = "xds_models.expt"
         print("-" * 80)
-        print("Writing experiments to %s" % params.output.filename)
+        print(f"Writing experiments to {params.output.filename}")
         experiments.as_file(params.output.filename)
 
         # Optionally save as a data block
         if params.output.xds_experiments:
             print("-" * 80)
-            print("Writing data block to %s" % params.output.xds_experiments)
+            print(f"Writing data block to {params.output.xds_experiments}")
             experiments.as_file(params.output.xds_experiments)
 
     @staticmethod
@@ -372,7 +368,7 @@ class XDSFileImporter(object):
         experiment.crystal.set_A_at_scan_points(A_list)
 
 
-class Script(object):
+class Script:
     """A class to encapsulate the script."""
 
     def __init__(self):
@@ -420,12 +416,12 @@ class Script(object):
         usage = "usage: dials.import_xds [options] (SPOT.XDS|INTEGRATE.HKL)"
         self.parser = OptionParser(usage=usage, phil=phil_scope)
 
-    def run(self):
+    def run(self, args=None):
         """Run the script."""
 
         # Parse the command line arguments
         params, options, args = self.parser.parse_args(
-            show_diff_phil=True, return_unhandled=True
+            args, show_diff_phil=True, return_unhandled=True
         )
 
         # Check number of arguments
@@ -452,10 +448,14 @@ class Script(object):
             assert len(experiments) == 1
             return IntegrateHKLImporter(args[0], experiments[0])
         else:
-            raise RuntimeError("expected (SPOT.XDS|INTEGRATE.HKL), got %s" % filename)
+            raise RuntimeError(f"expected (SPOT.XDS|INTEGRATE.HKL), got {filename}")
+
+
+@show_mail_handle_errors()
+def run(args=None):
+    script = Script()
+    script.run(args)
 
 
 if __name__ == "__main__":
-    with show_mail_on_error():
-        script = Script()
-        script.run()
+    run()

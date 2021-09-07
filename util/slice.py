@@ -1,5 +1,3 @@
-from __future__ import absolute_import, division, print_function
-
 import copy
 
 from scitbx.array_family import flex
@@ -34,7 +32,10 @@ def slice_experiments(experiments, image_ranges):
         end = sr[1] - arr_start
         exp.scan.swap(exp.scan[beg:end])
         if exp.imageset is not None:
-            exp.imageset = exp.imageset[beg:end]
+            # Gorilla of temporary workarounds for inconsistent scan and imageset slicing
+            # https://github.com/cctbx/dxtbx/issues/213
+            offset = exp.scan.get_batch_offset()
+            exp.imageset = exp.imageset[beg + offset : end + offset]
 
         # account for scan-varying crystal
         if exp.crystal and exp.crystal.num_scan_points > 0:
@@ -71,7 +72,7 @@ def slice_reflections(reflections, image_ranges):
         sub_isel = isel.select(in_lim)
         to_keep.extend(sub_isel)
 
-    # implictly also removes any reflections with ID outside the range of the
+    # implicitly also removes any reflections with ID outside the range of the
     # length of image_ranges
     return reflections.select(to_keep)
 

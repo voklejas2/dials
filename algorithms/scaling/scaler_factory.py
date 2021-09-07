@@ -1,23 +1,26 @@
 """
 Collection of factories for creating the scalers.
 """
-from __future__ import absolute_import, division, print_function
+
 import logging
+
 from libtbx import Auto
-from dials.array_family import flex
+
 from dials.algorithms.scaling.scaler import (
     MultiScaler,
-    TargetScaler,
-    SingleScaler,
     NullScaler,
+    SingleScaler,
+    TargetScaler,
 )
+from dials.algorithms.scaling.scaling_library import choose_initial_scaling_intensities
 from dials.algorithms.scaling.scaling_utilities import (
-    quasi_normalisation,
-    Reasons,
     BadDatasetForScalingException,
+    Reasons,
+    align_axis_along_z,
     calc_crystal_frame_vectors,
+    quasi_normalisation,
 )
-from dials.algorithms.scaling.scaling_library import choose_scaling_intensities
+from dials.array_family import flex
 from dials.util.filter_reflections import (
     filter_reflection_table_selection,
     sum_partial_reflections,
@@ -51,11 +54,13 @@ def create_scaler(params, experiments, reflections):
     return scaler
 
 
-class ScalerFactory(object):
+class ScalerFactory:
     """Base class for Scaler Factories"""
 
     @staticmethod
-    def filter_bad_reflections(reflections, partiality_cutoff=0.4, min_isigi=-5.0):
+    def filter_bad_reflections(
+        reflections, partiality_cutoff=0.4, min_isigi=-5.0, intensity_choice="combine"
+    ):
         """Initial filter to select integrated reflections."""
         logger.info(
             "Applying filter of min_isigi > %s, partiality > %s",
@@ -63,11 +68,18 @@ class ScalerFactory(object):
             partiality_cutoff,
         )
         logger.disabled = True
-        intensity_choice = []
-        if "intensity.sum.value" in reflections:
-            intensity_choice.append("sum")
-        if "intensity.prf.value" in reflections:
-            intensity_choice.append("profile")
+        if intensity_choice == "combine":
+            if "intensity.sum.value" not in reflections:
+                if "intensity.prf.value" not in reflections:
+                    intensity_choice = None
+                else:
+                    intensity_choice = ["profile"]
+            elif "intensity.prf.value" not in reflections:
+                intensity_choice = ["sum"]
+            else:
+                intensity_choice = ["sum | profile"]
+        else:
+            intensity_choice = [intensity_choice]
         if intensity_choice:
             good = filter_reflection_table_selection(
                 reflections,
@@ -76,9 +88,9 @@ class ScalerFactory(object):
                 partiality_threshold=partiality_cutoff,
                 min_isigi=min_isigi,
             )
-            logger.disabled = False
             mask = ~good
             reflections.set_flags(mask, reflections.flags.excluded_for_scaling)
+        logger.disabled = False
         return reflections
 
     @staticmethod
@@ -112,6 +124,7 @@ class SingleScalerFactory(ScalerFactory):
                 reflection_table,
                 partiality_cutoff=params.cut_data.partiality_cutoff,
                 min_isigi=params.cut_data.min_isigi,
+                intensity_choice=params.reflection_selection.intensity_choice,
             )
         except ValueError:
             raise BadDatasetForScalingException
@@ -131,7 +144,7 @@ class SingleScalerFactory(ScalerFactory):
             reflection_table["inverse_scale_factor"] = flex.double(
                 reflection_table.size(), 1.0
             )
-        reflection_table = choose_scaling_intensities(
+        reflection_table = choose_initial_scaling_intensities(
             reflection_table, params.reflection_selection.intensity_choice
         )
 
@@ -168,16 +181,22 @@ class SingleScalerFactory(ScalerFactory):
             and "absorption" in experiment.scaling_model.components
         ):
             if experiment.scan:
-                # calc theta and phi cryst
-                reflection_table["phi"] = (
-                    reflection_table["xyzobs.px.value"].parts()[2]
-                    * experiment.scan.get_oscillation()[1]
-                )
                 reflection_table = calc_crystal_frame_vectors(
                     reflection_table, experiment
                 )
-
-        return SingleScaler(params, experiment, reflection_table, for_multi)
+                alignment_axis = (1.0, 0.0, 0.0)
+                reflection_table["s0c"] = align_axis_along_z(
+                    alignment_axis, reflection_table["s0c"]
+                )
+                reflection_table["s1c"] = align_axis_along_z(
+                    alignment_axis, reflection_table["s1c"]
+                )
+        try:
+            scaler = SingleScaler(params, experiment, reflection_table, for_multi)
+        except BadDatasetForScalingException as e:
+            raise ValueError(e)
+        else:
+            return scaler
 
 
 class NullScalerFactory(ScalerFactory):
@@ -203,7 +222,7 @@ class NullScalerFactory(ScalerFactory):
         return NullScaler(params, experiment, reflection_table)
 
 
-class MultiScalerFactory(object):
+class MultiScalerFactory:
     "Factory for creating a scaler for multiple datasets"
 
     @staticmethod
@@ -244,7 +263,7 @@ class MultiScalerFactory(object):
         return multiscaler
 
 
-class TargetScalerFactory(object):
+class TargetScalerFactory:
     "Factory for creating a targeted scaler for multiple datasets"
 
     @staticmethod

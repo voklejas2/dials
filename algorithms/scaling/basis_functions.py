@@ -3,14 +3,14 @@ Classes that take in a scaler and minimisation parameters and
 return the scale factors and derivatives of the scale factors w.r.t.
 the parameters
 """
-from __future__ import absolute_import, division, print_function
+
+from scitbx import sparse
 
 from dials.array_family import flex
 from dials_scaling_ext import row_multiply
-from scitbx import sparse
 
 
-class RefinerCalculator(object):
+class RefinerCalculator:
     """Class that takes in a scaling_apm and calculates the scale factors
     and derivatives for minimisation."""
 

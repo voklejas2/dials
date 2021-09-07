@@ -1,16 +1,11 @@
-# coding: utf-8
 """
 Various tools/controls used by the image viewer
 """
 
-from __future__ import absolute_import, division, print_function
 
 import wx
-from orderedset import OrderedSet
-
 import wx.lib.newevent
-
-WX3 = wx.VERSION[0] == 3
+from orderedset import OrderedSet
 
 ZeroMQEvent, EVT_ZEROMQ_EVENT = wx.lib.newevent.NewEvent()
 
@@ -19,7 +14,7 @@ class ImageCollectionWithSelection(OrderedSet):
     """A Ordered-like object that tracks a 'currently selected item'"""
 
     def __init__(self, items=None):
-        super(ImageCollectionWithSelection, self).__init__(items or [])
+        super().__init__(items or [])
         self._selected_index = None
 
     @property
@@ -45,7 +40,7 @@ class ImageCollectionWithSelection(OrderedSet):
         self._selected_index = self.index(item)
 
 
-class LegacyChooserAdapter(object):
+class LegacyChooserAdapter:
     """Fake wx.Choice replacement for legacy upstream code.
 
     The design relies on a wx.Choice object being created by a subclass and
@@ -62,7 +57,7 @@ class LegacyChooserAdapter(object):
         :param images: The list-like object containing the image data
         :param loader: A function to call to load a specific entry as current
         """
-        super(LegacyChooserAdapter, self).__init__()
+        super().__init__()
         self._images = images
         self._loader = loader
 
@@ -90,21 +85,16 @@ class ImageChooserControl(wx.Control):
 
     def __init__(self, *args, **kwargs):
         kwargs["style"] = kwargs.get("style", 0) | wx.BORDER_NONE
-        super(ImageChooserControl, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self._slider = wx.Slider(self, -1, style=wx.SL_AUTOTICKS)
         self._slider.SetMin(1)
         self._label = wx.StaticText(self, -1, "Some Text")
 
         # Work out the maximum size of the text so that we can cut off the slider to allow room
-        if WX3:
-            _, size_y = self._label.GetAdjustedBestSize()
-            self._label.SetFont(self._label.GetFont().Italic())
-            self.size_y = max(size_y, self._label.GetAdjustedBestSize()[1])
-        else:
-            _, size_y = self._label.GetEffectiveMinSize()
-            self._label.SetFont(self._label.GetFont().Italic())
-            self.size_y = max(size_y, self._label.GetEffectiveMinSize()[1])
+        _, size_y = self._label.GetEffectiveMinSize()
+        self._label.SetFont(self._label.GetFont().Italic())
+        self.size_y = max(size_y, self._label.GetEffectiveMinSize()[1])
 
         # Use a horizontal box to control vertical alignment
         labelSizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -119,8 +109,8 @@ class ImageChooserControl(wx.Control):
         # Fix the slider height so that we can fit the whole text in
         w, h = self.GetSize()
         self._slider.SetMinSize((w, h - self.size_y))
-        # Delgate to the sizers for the rest of the calculation
-        super(ImageChooserControl, self).Layout()
+        # Delegate to the sizers for the rest of the calculation
+        super().Layout()
 
     def set_temporary_label(self, label):
         """Set the display label to a 'temporary' styled entry"""

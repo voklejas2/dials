@@ -1,7 +1,6 @@
 """
 Code to generate lookup values for algorithms/image/centroid/bias.h.
 """
-from __future__ import absolute_import, division, print_function
 
 
 def sum_of_erf(mu, sigma, N=1000):
@@ -12,7 +11,7 @@ def sum_of_erf(mu, sigma, N=1000):
     :param sigma: The Gaussian sigma
     :param N: The number of iterations in the sum
     """
-    from math import sqrt, erf
+    from math import erf, sqrt
 
     sum1 = 0
     sum2 = N * erf((N + 1 - mu) / (sqrt(2) * sigma))
@@ -73,4 +72,4 @@ if __name__ == "__main__":
     sigma, bias_sq = compute_lookup_table()
 
     for s, b in zip(sigma, bias_sq):
-        print("%0.2f %0.7f" % (s, b))
+        print(f"{s:0.2f} {b:0.7f}")

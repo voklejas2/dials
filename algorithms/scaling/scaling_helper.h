@@ -4,6 +4,7 @@
 #include <dials/array_family/scitbx_shared_and_versa.h>
 #include <scitbx/sparse/matrix.h>
 #include <scitbx/math/zernike.h>
+#include <scitbx/math/basic_statistics.h>
 #include <dials/error.h>
 #include <math.h>
 #include <dials/algorithms/refinement/gaussian_smoother.h>
@@ -118,6 +119,30 @@ scitbx::sparse::matrix<double> elementwise_square(scitbx::sparse::matrix<double>
     }
   }
   return result;
+}
+
+scitbx::af::shared<double> limit_outlier_weights(
+  scitbx::af::shared<double> weights,
+  scitbx::sparse::matrix<double> h_index_mat) {
+  scitbx::math::median_functor med;
+  for (int i = 0; i < h_index_mat.n_cols(); ++i) {
+    const col_type column = h_index_mat.col(i);
+    scitbx::af::shared<double> theseweights;
+    for (col_type::const_iterator it = column.begin(); it != column.end(); ++it) {
+      int refl_idx = it.index();
+      theseweights.push_back(weights[refl_idx]);
+    }
+    // now get the median
+    double median = med(theseweights.ref());
+    double ceil = 10.0 * median;
+    for (col_type::const_iterator it = column.begin(); it != column.end(); ++it) {
+      int refl_idx = it.index();
+      if (weights[refl_idx] > ceil) {
+        weights[refl_idx] = ceil;
+      }
+    }
+  }
+  return weights;
 }
 
 scitbx::sparse::matrix<double> calculate_dIh_by_dpi(
@@ -252,13 +277,17 @@ scitbx::sparse::matrix<double> row_multiply(scitbx::sparse::matrix<double> m,
 
 scitbx::af::shared<scitbx::vec2<double> > calc_theta_phi(
   scitbx::af::shared<scitbx::vec3<double> > xyz) {
-  // theta from -pi to pi. phi from 0 to pi
+  // physics conventions, phi from 0 to 2pi (xy plane, 0 along x axis), theta from 0 to
+  // pi (angle from z)
   int n_obs = xyz.size();
   scitbx::af::shared<scitbx::vec2<double> > theta_phi(n_obs);
   for (int i = 0; i < n_obs; i++) {
     theta_phi[i] = scitbx::vec2<double>(
       std::atan2(pow(pow(xyz[i][1], 2) + pow(xyz[i][0], 2), 0.5), xyz[i][2]),
-      std::atan2(xyz[i][1], xyz[i][0]));
+      fmod(std::atan2(xyz[i][1], xyz[i][0]) + (2.0 * scitbx::constants::pi),
+           2.0 * scitbx::constants::pi));
+    // atan2 returns in -pi to pi range, with 0 along x. We want to make it go from 0 to
+    // 2pi
   }
   return theta_phi;
 }
@@ -272,8 +301,7 @@ scitbx::af::shared<std::size_t> calc_lookup_index(
     lookup_index[i] =
       int(360.0 * points_per_degree
             * floor(theta_phi[i][0] * points_per_degree * 180.0 / scitbx::constants::pi)
-          + floor((theta_phi[i][1] + scitbx::constants::pi) * 180.0 * points_per_degree
-                  / scitbx::constants::pi));
+          + floor(theta_phi[i][1] * 180.0 * points_per_degree / scitbx::constants::pi));
   }
   return lookup_index;
 }
@@ -466,7 +494,6 @@ boost::python::list create_sph_harm_lookup_table(int lmax, int points_per_degree
   boost::python::list coefficients_list;
   double sqrt2 = 1.414213562;
   int n_items = 360 * 180 * points_per_degree * points_per_degree;
-  double delta = scitbx::constants::pi / (360 * points_per_degree);
   for (int l = 1; l < lmax + 1; l++) {
     for (int m = -1 * l; m < l + 1; m++) {
       scitbx::af::shared<double> coefficients(n_items);
@@ -474,12 +501,9 @@ boost::python::list create_sph_harm_lookup_table(int lmax, int points_per_degree
         double prefactor = sqrt2 * pow(-1.0, m);
         for (int i = 0; i < n_items; i++) {
           double theta = (floor(i / (360.0 * points_per_degree)) * scitbx::constants::pi
-                          / (180.0 * points_per_degree))
-                         + delta;
-          double phi = (((i % (360 * points_per_degree)) * scitbx::constants::pi
-                         / (180.0 * points_per_degree))
-                        - scitbx::constants::pi)
-                       + delta;
+                          / (180.0 * points_per_degree));
+          double phi = ((i % (360 * points_per_degree)) * scitbx::constants::pi
+                        / (180.0 * points_per_degree));
           coefficients[i] =
             prefactor
             * (nsssphe.spherical_harmonic_direct(l, -1 * m, theta, phi).imag());
@@ -487,24 +511,18 @@ boost::python::list create_sph_harm_lookup_table(int lmax, int points_per_degree
       } else if (m == 0) {
         for (int i = 0; i < n_items; i++) {
           double theta = (floor(i / (360.0 * points_per_degree)) * scitbx::constants::pi
-                          / (180.0 * points_per_degree))
-                         + delta;
-          double phi = (((i % (360 * points_per_degree)) * scitbx::constants::pi
-                         / (180.0 * points_per_degree))
-                        - scitbx::constants::pi)
-                       + delta;
+                          / (180.0 * points_per_degree));
+          double phi = ((i % (360 * points_per_degree)) * scitbx::constants::pi
+                        / (180.0 * points_per_degree));
           coefficients[i] = nsssphe.spherical_harmonic_direct(l, 0, theta, phi).real();
         }
       } else {
         double prefactor = sqrt2 * pow(-1.0, m);
         for (int i = 0; i < n_items; i++) {
           double theta = (floor(i / (360.0 * points_per_degree)) * scitbx::constants::pi
-                          / (180.0 * points_per_degree))
-                         + delta;
-          double phi = (((i % (360 * points_per_degree)) * scitbx::constants::pi
-                         / (180.0 * points_per_degree))
-                        - scitbx::constants::pi)
-                       + delta;
+                          / (180.0 * points_per_degree));
+          double phi = ((i % (360 * points_per_degree)) * scitbx::constants::pi
+                        / (180.0 * points_per_degree));
           coefficients[i] =
             prefactor * (nsssphe.spherical_harmonic_direct(l, m, theta, phi).real());
         }

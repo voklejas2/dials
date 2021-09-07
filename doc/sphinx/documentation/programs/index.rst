@@ -18,7 +18,7 @@ Main processing commands:
    dials_symmetry
    dials_scale
    dials_export
-
+   xia2_multiplex
 
 Utilities:
 
@@ -38,6 +38,7 @@ Utilities:
    dials_apply_mask
    dials_create_profile_model
    dials_estimate_gain
+   dials_estimate_resolution
    dials_predict
    dials_merge_cbf
    dials_export_bitmaps
@@ -48,6 +49,8 @@ Utilities:
    dials_combine_experiments
    dials_align_crystal
    dials_anvil_correction
+   dials_missing_reflections
+   dials_filter_reflections
 
 Printable command line reference:
 
@@ -60,3 +63,20 @@ Printable command line reference:
   </iframe>
   </div>
   <a class="reference external" href="https://drive.google.com/file/d/0B0yDAeP5vfI7aW5ORWdORHVmOGs/preview" target="_blank">Open pdf in new tab</a>
+
+
+More details on most used DIALS algorithms:
+
+.. raw:: html
+
+  <iframe
+    src="https://docs.google.com/presentation/d/e/2PACX-1vSDBwscFn3Y6wnRf5NXlEW1faBYToPOlkirc9ctJQ9TYf975Vh5qmbTofXb0jPtD7W3MixldFZxA_2C/embed?start=false&loop=false&delayms=3000"
+    frameborder="0"
+    width="960"
+    height="749"
+    mozallowfullscreen="true"
+    webkitallowfullscreen="true">
+  </iframe>
+  <a class="reference external"
+    href="https://docs.google.com/presentation/d/e/2PACX-1vSDBwscFn3Y6wnRf5NXlEW1faBYToPOlkirc9ctJQ9TYf975Vh5qmbTofXb0jPtD7W3MixldFZxA_2C/embed?start=false&loop=false&delayms=3000">Open presentation in new tab
+  </a>

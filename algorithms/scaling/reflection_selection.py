@@ -26,7 +26,7 @@ sorted matrix:
 classes 1  2  2  0  0  3  1  0
         2  1  4  2  1  0  0  5
 
-Now, we chose a target number of reflections per class e.g. 5. To chose the
+Now, we choose a target number of reflections per class e.g. 5. To choose the
 reflection groups, we start with the first column.
 number of chosen reflections per class: [3, 2, 1]
 symmetry groups used:                   [1]
@@ -36,7 +36,7 @@ that has a reflection in the least populated class so far i.e. class 2.
 In this case, the first unused group is group 5:
 number of chosen reflections per class: [4, 4, 5]
 symmetry groups used:                   [1, 5]
-In this way, we build up the dataset by chosing the highest-connected groups
+In this way, we build up the dataset by choosing the highest-connected groups
 that have a reflection in the most-deficient class.
 
 Next we need to add a group with a reflection in class 0 (first we find is group 0):
@@ -61,18 +61,18 @@ connected reflections between datasets. The reflections used for minimisation
 are those which are selected by either method - inter-dataset connectedness or
 intra-dataset connectedness.
 """
-from __future__ import absolute_import, division, print_function
+
 import logging
 from math import floor
-from dials.util import tabulate
 
 from scitbx import sparse
 
-from dials.array_family import flex
 from dials.algorithms.scaling.scaling_utilities import (
-    Reasons,
     BadDatasetForScalingException,
+    Reasons,
 )
+from dials.array_family import flex
+from dials.util import tabulate
 
 logger = logging.getLogger("dials")
 
@@ -244,7 +244,7 @@ from each dataset, with a total number between %.2f and %.2f.
 def _loop_over_class_matrix(
     sorted_class_matrix, min_per_area, min_per_bin, max_per_bin
 ):
-    """Build up the reflectio set by looping over the class matrix."""
+    """Build up the reflection set by looping over the class matrix."""
 
     def _get_next_row_needed(total_in_classes):
         current_min = flex.min(total_in_classes)
@@ -324,16 +324,16 @@ def _determine_Isigma_selection(reflection_table, params):
     selection = Ioversigma > Isiglow
     if Isighigh != 0.0:
         selection &= Ioversigma < Isighigh
-        reason = "in I/sigma range (%s > I/sig > %s)" % (Isighigh, Isiglow)
+        reason = f"in I/sigma range ({Isighigh} > I/sig > {Isiglow})"
     else:
-        reason = "in I/sigma range (I/sig > %s)" % Isiglow
+        reason = f"in I/sigma range (I/sig > {Isiglow})"
     return selection, reason
 
 
 def _determine_partiality_selection(reflection_table, params):
     min_partiality = params.reflection_selection.min_partiality
     selection = reflection_table["partiality"] > min_partiality
-    reason = "above min partiality ( > %s)" % min_partiality
+    reason = f"above min partiality ( > {min_partiality})"
     return selection, reason
 
 
@@ -341,7 +341,7 @@ def _determine_d_range_selection(reflection_table, params):
     d_min, d_max = params.reflection_selection.d_range
     d_sel = reflection_table["d"] > d_min
     d_sel &= reflection_table["d"] < d_max
-    reason = "in d range (%s > d > %s)" % (d_max, d_min)
+    reason = f"in d range ({d_max} > d > {d_min})"
     return d_sel, reason
 
 
@@ -350,7 +350,7 @@ def _determine_E2_range_selection(reflection_table, params):
     sel1 = reflection_table["Esq"] > Elow
     sel2 = reflection_table["Esq"] < Ehigh
     Esq_sel = sel1 & sel2
-    reason = "in E^2 range (%s > E^2 > %s)" % (Ehigh, Elow)
+    reason = f"in E^2 range ({Ehigh} > E^2 > {Elow})"
     return Esq_sel, reason
 
 

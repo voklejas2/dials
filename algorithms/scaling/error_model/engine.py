@@ -3,27 +3,23 @@ Refinement engine and functions for error model refinement.
 """
 import logging
 
-from dials.algorithms.scaling.error_model.error_model import (
-    get_error_model_class_and_scope,
-    get_error_parameters_to_refine,
-)
 from dials.algorithms.refinement.engine import SimpleLBFGS
-from dials.algorithms.scaling.scaling_refiner import print_step_table
+from dials.algorithms.scaling.error_model.error_model import (
+    ErrorModelA_APM,
+    ErrorModelB_APM,
+    ErrorModelRegressionAPM,
+)
 from dials.algorithms.scaling.error_model.error_model_target import (
     ErrorModelTargetA,
     ErrorModelTargetB,
     ErrorModelTargetRegression,
 )
-from dials.algorithms.scaling.error_model.error_model import (
-    ErrorModelRegressionAPM,
-    ErrorModelA_APM,
-    ErrorModelB_APM,
-)
+from dials.algorithms.scaling.scaling_refiner import print_step_table
 
 logger = logging.getLogger("dials")
 
 
-def run_error_model_refinement(error_model_phil_scope, Ih_table):
+def run_error_model_refinement(model, Ih_table):
     """
     Refine an error model for the input data, returning the model.
 
@@ -32,21 +28,20 @@ def run_error_model_refinement(error_model_phil_scope, Ih_table):
         RuntimeError: can be raised in LBFGS minimiser.
     """
     assert Ih_table.n_work_blocks == 1
-    model_class, scope = get_error_model_class_and_scope(error_model_phil_scope)
-    model = model_class(Ih_table.blocked_data_list[0], scope)
-    active_parameters = get_error_parameters_to_refine(model_class, scope)
-    if not active_parameters:
+    model.configure_for_refinement(Ih_table.blocked_data_list[0])
+    if not model.active_parameters:
         logger.info("All error model parameters fixed, skipping refinement")
     else:
         logger.info("Performing a round of error model refinement.")
         refinery = error_model_refinery(
             model=model,
-            active_parameters=active_parameters,
-            error_model_scope=scope,
+            active_parameters=model.active_parameters,
+            error_model_scope=model.params,
             max_iterations=100,
         )
-        refinery.run()
-        refinery.print_step_table()
+        if refinery:
+            refinery.run()
+            refinery.print_step_table()
         logger.info(model)
     model.finalise()
     return model
@@ -75,13 +70,15 @@ def error_model_refinery(model, active_parameters, error_model_scope, max_iterat
                 prediction_parameterisation=parameterisation,
                 max_iterations=max_iterations,
             )
+        else:
+            return None
 
 
 class ErrorModelRegressionRefiner(SimpleLBFGS):
 
     """Use LBFGS for convenience, actually is a linear regression.
 
-    Therefore target.predict step is unneccesary."""
+    Therefore target.predict step is unnecessary."""
 
     def __init__(self, model, *args, **kwargs):
         self.model = model
@@ -107,7 +104,7 @@ class ErrorModelRegressionRefiner(SimpleLBFGS):
         return
 
     def run(self):
-        super(ErrorModelRegressionRefiner, self).run()
+        super().run()
         self.parameterisation.resolve_model_parameters()
 
     def prepare_for_step(self):
@@ -124,7 +121,7 @@ class ErrorModelRegressionRefiner(SimpleLBFGS):
 
     def compute_functional_gradients_and_curvatures(self):
         """overwrite method to avoid calls to 'blocks' methods of target"""
-        logger.debug("Current parameters %s", ["%.6f" % i for i in self.x])
+        logger.debug("Current parameters %s", [f"{i:.6f}" for i in self.x])
         self.prepare_for_step()
         self._target.predict(
             self.parameterisation
@@ -144,7 +141,7 @@ class ErrorModelRegressionRefiner(SimpleLBFGS):
         return f, g, None
 
 
-class ErrorModelRefinery(object):
+class ErrorModelRefinery:
 
     """Refiner for the basic error model."""
 
@@ -195,7 +192,7 @@ class ErrorModelRefinery(object):
             target=target,
             prediction_parameterisation=parameterisation,
             *self.args,
-            **self.kwargs
+            **self.kwargs,
         )
         refiner.run()
 

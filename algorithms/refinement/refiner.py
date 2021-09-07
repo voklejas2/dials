@@ -1,37 +1,45 @@
 """Refiner is the refinement module public interface. RefinerFactory is
 what should usually be used to construct a Refiner."""
 
-from __future__ import absolute_import, division, print_function
 
 import copy
 import logging
 import math
 
-import dials.util
-import libtbx
 import psutil
 
+import libtbx
 from dxtbx.model.experiment_list import ExperimentList
-from dials.array_family import flex
-from dials.algorithms.refinement.refinement_helpers import ordinal_number
 from libtbx.phil import parse
+
+import dials.util
 from dials.algorithms.refinement import DialsRefineConfigError
-from dials.algorithms.refinement.reflection_manager import ReflectionManagerFactory
-from dials.algorithms.refinement.prediction.managed_predictors import (
-    ExperimentsPredictorFactory,
-)
+from dials.algorithms.refinement.constraints import ConstraintManagerFactory
+from dials.algorithms.refinement.engine import AdaptLstbx, refinery_phil_str
 from dials.algorithms.refinement.parameterisation import (
     build_prediction_parameterisation,
 )
-from dials.algorithms.refinement.constraints import ConstraintManagerFactory
+from dials.algorithms.refinement.parameterisation import (
+    phil_str as parameterisation_phil_str,
+)
 from dials.algorithms.refinement.parameterisation.autoreduce import AutoReduce
 from dials.algorithms.refinement.parameterisation.parameter_report import (
     ParameterReporter,
 )
-from dials.algorithms.refinement.engine import AdaptLstbx
+from dials.algorithms.refinement.prediction.managed_predictors import (
+    ExperimentsPredictorFactory,
+)
+from dials.algorithms.refinement.refinement_helpers import ordinal_number, string_sel
+from dials.algorithms.refinement.reflection_manager import ReflectionManagerFactory
+from dials.algorithms.refinement.reflection_manager import (
+    phil_str as reflections_phil_str,
+)
 from dials.algorithms.refinement.restraints import RestraintsParameterisation
 from dials.algorithms.refinement.target import TargetFactory
-from dials.algorithms.refinement.refinement_helpers import string_sel
+from dials.algorithms.refinement.target import phil_str as target_phil_str
+from dials.array_family import flex
+
+logger = logging.getLogger(__name__)
 
 # The include scope directive does not work here. For example:
 #
@@ -42,17 +50,6 @@ from dials.algorithms.refinement.refinement_helpers import string_sel
 #   AttributeError: 'module' object has no attribute 'refinement'
 #
 # to work around this, just include external phil scopes as strings
-from dials.algorithms.refinement.reflection_manager import (
-    phil_str as reflections_phil_str,
-)
-from dials.algorithms.refinement.target import phil_str as target_phil_str
-from dials.algorithms.refinement.parameterisation import (
-    phil_str as parameterisation_phil_str,
-)
-from dials.algorithms.refinement.engine import refinery_phil_str
-
-logger = logging.getLogger(__name__)
-
 format_data = {
     "reflections_phil": reflections_phil_str,
     "target_phil": target_phil_str,
@@ -226,7 +223,7 @@ def _trim_scans_to_observations(experiments, reflections):
     return experiments
 
 
-class RefinerFactory(object):
+class RefinerFactory:
     """Factory class to create refiners"""
 
     @staticmethod
@@ -314,10 +311,11 @@ class RefinerFactory(object):
         if params.refinement.parameterisation.scan_varying is libtbx.Auto:
             params.refinement.parameterisation.scan_varying = False
 
-        # Trim scans and calculate reflection block_width if required for scan-varying refinement
+        # Calculate reflection block_width for scan-varying refinement. Trim scans
+        # to the extent of the observations, if requested.
         if params.refinement.parameterisation.scan_varying:
-
-            experiments = _trim_scans_to_observations(experiments, reflections)
+            if params.refinement.parameterisation.trim_scan_to_observations:
+                experiments = _trim_scans_to_observations(experiments, reflections)
 
             from dials.algorithms.refinement.reflection_manager import BlockCalculator
 
@@ -445,9 +443,10 @@ class RefinerFactory(object):
         ndim = target.dim
         nref = len(refman.get_matches())
         logger.info(
-            "There are {0} parameters to refine against {1} reflections in {2} dimensions".format(
-                nparam, nref, ndim
-            )
+            "There are %s parameters to refine against %s reflections in %s dimensions",
+            nparam,
+            nref,
+            ndim,
         )
 
         if not params.refinement.parameterisation.sparse and isinstance(
@@ -463,9 +462,8 @@ class RefinerFactory(object):
                 or dense_jacobian_gigabytes > 0.5
             ):
                 logger.info(
-                    "Storage of the Jacobian matrix requires {:.1f} GB".format(
-                        dense_jacobian_gigabytes
-                    )
+                    "Storage of the Jacobian matrix requires %.1f GB",
+                    dense_jacobian_gigabytes,
                 )
 
         # build refiner interface and return
@@ -499,9 +497,7 @@ class RefinerFactory(object):
             params.refinement.parameterisation.sparse and params.refinement.mp.nproc > 1
         ):
             logger.warning(
-                "Could not set sparse=True and nproc={}".format(
-                    params.refinement.mp.nproc
-                )
+                "Could not set sparse=True and nproc=%s", params.refinement.mp.nproc
             )
             logger.warning("Resetting sparse=False")
             params.refinement.parameterisation.sparse = False
@@ -634,9 +630,9 @@ class RefinerFactory(object):
                 engine.set_nproc(nproc)
             except NotImplementedError:
                 logger.warning(
-                    "Could not set nproc={0} for refinement engine of type {1}".format(
-                        nproc, options.engine
-                    )
+                    "Could not set nproc=%s for refinement engine of type %s",
+                    nproc,
+                    options.engine,
                 )
 
         return engine
@@ -668,7 +664,7 @@ class RefinerFactory(object):
         return target
 
 
-class Refiner(object):
+class Refiner:
     """Public interface for performing DIALS refinement.
 
     Public methods:
@@ -686,8 +682,6 @@ class Refiner(object):
       * The return value of run is a recorded history of the refinement
       * The experiments accessor provides a copy of the experiments used by
         refinement
-      * The model accessors provide copies of those models that might be modified
-        by refinement (beam, crystal and detector) TO BE DEPRECATED
       * get_matches exposes the function of the same name from the privately
         stored reflection manager
       * The return value of selection_used_for_refinement is a flex.bool
@@ -823,7 +817,7 @@ class Refiner(object):
             ]
             rows.append(
                 [str(i), str(self._refinery.history["num_reflections"][i])]
-                + ["%.5g" % r for r in rmsds]
+                + [f"{r:.5g}" for r in rmsds]
             )
 
         logger.info(dials.util.tabulate(rows, header))
@@ -863,7 +857,7 @@ class Refiner(object):
                     self._refinery.history["out_of_sample_rmsd"][i], rmsd_multipliers
                 )
             ]
-            rows.append([str(i), str(nref)] + ["%.5g" % e for e in rmsds])
+            rows.append([str(i), str(nref)] + [f"{e:.5g}" for e in rmsds])
 
         logger.info(dials.util.tabulate(rows, header))
 
@@ -925,7 +919,7 @@ class Refiner(object):
                     rmsds.append(rmsd * images_per_rad)
                 elif units == "rad":
                     rmsds.append(rmsd * RAD2DEG)
-            rows.append([str(iexp), str(num)] + ["%.5g" % r for r in rmsds])
+            rows.append([str(iexp), str(num)] + [f"{r:.5g}" for r in rmsds])
 
         if len(rows) > 0:
             logger.info(dials.util.tabulate(rows, header))
@@ -949,7 +943,7 @@ class Refiner(object):
         for idetector, detector in enumerate(self._experiments.detectors()):
             if len(detector) == 1:
                 continue
-            logger.info("\nDetector {} RMSDs by panel:".format(idetector + 1))
+            logger.info("\nDetector %s RMSDs by panel:", idetector + 1)
 
             header = ["Panel\nid", "Nref"]
             for (name, units) in zip(self._target.rmsd_names, self._target.rmsd_units):
@@ -989,7 +983,7 @@ class Refiner(object):
                         rmsds.append(rmsd * images_per_rad)
                     elif name == "RMSD_DeltaPsi" and units == "rad":
                         rmsds.append(rmsd * RAD2DEG)
-                rows.append([str(ipanel), str(num)] + ["%.5g" % r for r in rmsds])
+                rows.append([str(ipanel), str(num)] + [f"{r:.5g}" for r in rmsds])
 
             if len(rows) > 0:
                 logger.info(dials.util.tabulate(rows, header))
