@@ -1,3 +1,18 @@
+DIALS 3.7.3 (2021-12-27)
+========================
+
+Features
+--------
+
+- Add ``Dockerfile`` and Build and Push Docker images GitHub action (`#1936 <https://github.com/dials/dials/issues/1936>`_)
+
+
+Bugfixes
+--------
+
+- Copy docker entrypoint script with exec permissions (`#1940 <https://github.com/dials/dials/issues/1940>`_)
+
+
 DIALS 3.7.2 (2021-12-02)
 ========================
 
